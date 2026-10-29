@@ -63,4 +63,4 @@ src/
 
 ## 许可证
 
-栖图自身的许可证尚未确定。
+[MIT](LICENSE)。其中移植自 wy51ai/floorplan-3d 的部分同时遵循原项目的 MIT 许可证，见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。

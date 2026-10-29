@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "description": "栖图 NestPlan：上传户型图还原，在线 2D / 3D 装修设计",
+  "license": "MIT",
   "scripts": {
     "dev": "vite",
     "build": "tsc -p tsconfig.json && vite build",
