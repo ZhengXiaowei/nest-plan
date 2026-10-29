@@ -1,9 +1,10 @@
 import {defineConfig} from 'vite';
 import react from '@vitejs/plugin-react';
+import {astryxSlim} from './scripts/astryx-slim.mjs';
 
 // 3D、还原页、回放页都是动态 import，构建时自动拆包，首屏只加载 2D 编辑器。
 export default defineConfig({
-  plugins: [react()],
+  plugins: [astryxSlim(), react()],
   build: {
     target: 'es2022',
     cssCodeSplit: true,

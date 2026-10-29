@@ -15,7 +15,7 @@
 
 ## 接下来
 
-路线图和性能、动效指标见 [docs/plan.md](docs/plan.md)。主要是：DXF（CAD）和 PDF 户型图导入、AI 助手直接改方案、首屏体积压到 150 KB 以内。
+路线图和性能、动效指标见 [docs/plan.md](docs/plan.md)。主要是：DXF（CAD）和 PDF 户型图导入、AI 助手直接改方案。
 
 ## 本地开发
 
@@ -25,7 +25,7 @@
 npm install
 npm run dev        # 本地开发
 npm run build      # 类型检查 + 生产构建
-npm run budget     # 构建后检查首屏体积
+npm run budget     # 构建后检查首屏体积（JS 上限 150 KB gzip）
 npm run theme      # 改了 src/theme/blueprint.ts 之后重新生成主题
 ```
 

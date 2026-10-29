@@ -1,9 +1,9 @@
 // 首屏体积检查：入口 JS + 首屏预加载的 JS + CSS，按 gzip 计算。
-// 目标是首屏 JS ≤ 150 KB；当前上限先放在 165 KB，逐步收紧（见 docs/plan.md）。
+// 首屏 JS 上限 150 KB（见 docs/plan.md），超了 CI 就失败。
 import {readFileSync} from 'node:fs';
 import {gzipSync} from 'node:zlib';
 
-const LIMIT_JS_KB = Number(process.env.BUDGET_JS_KB ?? 165);
+const LIMIT_JS_KB = Number(process.env.BUDGET_JS_KB ?? 150);
 const LIMIT_CSS_KB = Number(process.env.BUDGET_CSS_KB ?? 45);
 
 const html = readFileSync('dist/index.html', 'utf8');

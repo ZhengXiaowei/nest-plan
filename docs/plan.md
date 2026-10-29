@@ -31,7 +31,7 @@
 
 | 指标 | 目标 | 现在 |
 | --- | --- | --- |
-| 首屏 JS（gzip） | ≤ 150 KB | 155 KB（CI 上限暂设 165 KB） |
+| 首屏 JS（gzip） | ≤ 150 KB | 142 KB（CI 上限 150 KB） |
 | 首屏 CSS（gzip） | ≤ 45 KB | 40 KB |
 | LCP | < 1.5 s | 待测 |
 | INP | < 100 ms | 待测 |
@@ -46,7 +46,13 @@
 - 页面切换用 View Transitions API；尊重系统的「减少动态效果」设置。
 - 图片预处理（缩放、二值化）之后移到 Web Worker。
 
-首屏 JS 还差 5 KB：主要是 Astryx 主题运行时。计划尝试 Astryx 的 StyleX 源码编译模式，让未用到的样式和主题代码在构建时去掉。
+首屏 JS 从 161 KB 压到了 142 KB，靠的是构建插件 `scripts/astryx-slim.mjs` 给 Astryx 瘦身，不改 node_modules：
+
+- Astryx 文案格式化用的 intl-messageformat 换成 `src/lib/icuLite.ts`。Astryx 的文案只用到参数、number、plural、select 几种写法，单测逐条对比了它全部中英文文案，结果和原库一致。
+- Astryx 自带的英文文案表换成中文（缺的用英文补），组件的提示和读屏文字跟页面语言一致，体积也更小。
+- `<Theme>` 里运行时生成主题 CSS 的代码换成占位。我们用 `astryx theme build` 预生成的主题，这段代码不会执行，却会带进一整套配色算法。
+
+剩下最大的是 react-dom（约 60 KB），其次是 Astryx 文案表和主题 token。再往下压可以按实际用到的组件裁剪文案表。
 
 ## AI 接口
 
