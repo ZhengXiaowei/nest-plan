@@ -1,4 +1,4 @@
-import {memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent} from 'react';
+import {lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent} from 'react';
 import {toast} from '../../lib/toast';
 import type {Furniture, Measure, Opening, Room, Vec2, Wall} from '../../model/types';
 import {MATERIALS} from '../../model/materials';
@@ -11,6 +11,9 @@ import {snapToWalls} from '../../model/snap';
 import {uid} from '../../lib/id';
 import {furnitureSymbol} from './furnitureSymbol';
 import './plan2d.css';
+
+// 分析图层打开对应页签时才加载
+const SunOverlay = lazy(() => import('../sun/SunOverlay'));
 
 type ViewBox = {x: number; y: number; w: number; h: number};
 
@@ -293,6 +296,7 @@ export function PlanCanvas() {
   const selection = usePlanStore((s) => s.selection);
   const tool = useDesignUi((s) => s.tool);
   const layers = useDesignUi((s) => s.layers);
+  const panel = useDesignUi((s) => s.panel);
   const [measureStart, setMeasureStart] = useState<Vec2 | null>(null);
   const [cursor, setCursor] = useState<Vec2 | null>(null);
   const [chain, setChain] = useState<Vec2[]>([]);
@@ -696,6 +700,11 @@ export function PlanCanvas() {
             <FurnitureItem key={f.id} f={f} selected={f.id === selId('furniture')} />
           ))}
         </g>
+      )}
+      {panel === 'sun' && (
+        <Suspense fallback={null}>
+          <SunOverlay plan={plan} />
+        </Suspense>
       )}
       <WallsLayer walls={plan.walls} openings={plan.openings} demolished={plan.demolished} selectedId={selId('wall')} />
       {layers.labels && <RoomLabels rooms={plan.rooms} />}

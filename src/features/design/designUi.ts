@@ -1,5 +1,6 @@
 import {create} from 'zustand';
 import type {Vec2} from '../../model/types';
+import type {SunDayKey} from '../../model/sun';
 
 /** 平面图上的工具：选择摆放 / 测量 / 拆墙 / 砌墙 */
 export type DesignTool = 'select' | 'measure' | 'demolish' | 'build';
@@ -22,9 +23,14 @@ export interface SceneOptions {
   furniture: boolean;
   labels: boolean;
   night: boolean;
-  /** 太阳时间，7 到 18 点 */
+  /** 太阳时间（北京时间钟点） */
   hour: number;
 }
+
+/** 右侧面板的页签 */
+export type PanelTab = 'props' | 'rooms' | 'sun' | 'check' | 'ai';
+/** 日照在平面图上显示：此刻的光斑 / 全天日照时长 */
+export type SunView = 'now' | 'day';
 
 export type CameraPreset = 'iso' | 'top';
 
@@ -37,6 +43,12 @@ interface DesignUi {
   scene: SceneOptions;
   /** 3D 视角请求：预设视角或飞到某个房间，n 每次加一保证重复点击也生效 */
   camera: {target: CameraPreset | {room: string}; n: number} | null;
+  panel: PanelTab;
+  sunDay: SunDayKey;
+  sunView: SunView;
+  setPanel: (p: PanelTab) => void;
+  setSunDay: (d: SunDayKey) => void;
+  setSunView: (v: SunView) => void;
   setTool: (t: DesignTool) => void;
   setView: (v: DesignView) => void;
   toggleLayer: (k: keyof PlanLayers) => void;
@@ -52,6 +64,12 @@ export const useDesignUi = create<DesignUi>()((set) => ({
   wallSnap: true,
   scene: {cut: false, furniture: true, labels: true, night: false, hour: 10},
   camera: null,
+  panel: 'props',
+  sunDay: 'winter',
+  sunView: 'now',
+  setPanel: (panel) => set({panel}),
+  setSunDay: (sunDay) => set({sunDay}),
+  setSunView: (sunView) => set({sunView}),
   setTool: (tool) => set({tool}),
   // 离开平面图时回到选择工具，免得回来还停在拆墙模式
   setView: (view) => set(view === '2d' ? {view} : {view, tool: 'select'}),

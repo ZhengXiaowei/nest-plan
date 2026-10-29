@@ -8,15 +8,14 @@ import {IconCopy, IconCube, IconFit, IconLayers, IconMinus, IconPlus, IconRotate
 import {LazyMenu} from './LazyMenu';
 import {usePlanStore} from '../../store/planStore';
 import {LibraryPanel} from './LibraryPanel';
-import {planView, TOOL_HINTS, useDesignUi, type DesignTool, type DesignView} from './designUi';
+import {planView, TOOL_HINTS, useDesignUi, type DesignTool, type DesignView, type PanelTab} from './designUi';
 import {PropertiesTab} from './PropertiesTab';
 import {RoomsTab} from './RoomsTab';
 
 // three.js 体积较大，单独拆包，首屏不加载
 const Viewer3D = lazy(() => import('../view3d/Viewer3D'));
 const AssistantTab = lazy(() => import('./AssistantTab'));
-
-type PanelTab = 'props' | 'rooms' | 'ai';
+const SunPanel = lazy(() => import('../sun/SunPanel'));
 
 export function DesignPage() {
   const view = useDesignUi((s) => s.view);
@@ -24,7 +23,8 @@ export function DesignPage() {
   const tool = useDesignUi((s) => s.tool);
   const setTool = useDesignUi((s) => s.setTool);
   const [showPip, setShowPip] = useState(true);
-  const [tab, setTab] = useState<PanelTab>('props');
+  const tab = useDesignUi((s) => s.panel);
+  const setTab = useDesignUi((s) => s.setPanel);
 
   return (
     <main className="np-design">
@@ -102,12 +102,18 @@ export function DesignPage() {
           <TabList value={tab} onChange={(v) => setTab(v as PanelTab)} layout="fill" hasDivider>
             <Tab value="props" label="属性" />
             <Tab value="rooms" label="房间" />
-            <Tab value="ai" label="AI 助手" />
+            <Tab value="sun" label="日照" />
+            <Tab value="ai" label="AI" />
           </TabList>
         </div>
         <div className="np-tab-body">
           {tab === 'props' && <PropertiesTab />}
           {tab === 'rooms' && <RoomsTab />}
+          {tab === 'sun' && (
+            <Suspense fallback={<div className="np-loading">加载中…</div>}>
+              <SunPanel />
+            </Suspense>
+          )}
           {tab === 'ai' && (
             <Suspense fallback={<div className="np-loading">加载中…</div>}>
               <AssistantTab />

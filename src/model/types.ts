@@ -103,6 +103,16 @@ export interface PlanSource {
   note?: string;
 }
 
+/** 房子在哪、朝哪：算真实日照用 */
+export interface Site {
+  /** 城市名，只用来显示 */
+  city?: string;
+  lat: number;
+  lng: number;
+  /** 图纸上方顺时针转多少度是正北（度）。0 表示图纸上方朝北 */
+  north: number;
+}
+
 export interface Plan {
   version: 1;
   id: string;
@@ -118,4 +128,6 @@ export interface Plan {
   source: PlanSource;
   /** 用户改过的地面单价（元/㎡），没改的用默认价 */
   prices?: Partial<Record<MaterialId, number>>;
+  /** 位置和朝向，不填按上海、图纸上方朝北 */
+  site?: Site;
 }

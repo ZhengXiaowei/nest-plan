@@ -1,5 +1,5 @@
 import {create} from 'zustand';
-import type {Furniture, MaterialId, Measure, Plan, Wall} from '../model/types';
+import type {Furniture, MaterialId, Measure, Plan, Site, Wall} from '../model/types';
 import {createSamplePlan} from '../model/samplePlan';
 import {normAngle} from '../model/geometry';
 import {canDemolish, pushOut, wallRects} from '../model/walls';
@@ -52,6 +52,8 @@ interface PlanState {
   setRoomMaterial: (roomId: string, material: MaterialId) => void;
   renameRoom: (roomId: string, name: string) => void;
   setPrice: (material: MaterialId, price: number | null) => void;
+  /** 改位置和朝向；拖指南针时 live=true 不记历史（按下时自己 checkpoint） */
+  setSite: (site: Site, live?: boolean) => void;
   /** 整个换掉方案（导入、重置），可撤销 */
   replacePlan: (plan: Plan) => void;
 
@@ -155,6 +157,7 @@ export const usePlanStore = create<PlanState>()((set, get) => ({
       else prices[material] = price;
       return {...p, prices};
     }),
+  setSite: (site, live) => (live ? get().patch((p) => ({...p, site})) : get().commit((p) => ({...p, site}))),
   replacePlan: (plan) => {
     get().commit(() => normalizePlan(plan));
     set({selection: null});

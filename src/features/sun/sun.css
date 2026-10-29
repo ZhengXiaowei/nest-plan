@@ -1,0 +1,45 @@
+/* 日照面板 */
+.sun-panel { display: flex; flex-direction: column; gap: 14px; }
+.sun-site { display: grid; grid-template-columns: 96px 1fr; gap: 12px; align-items: start; }
+.sun-site-fields { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.sun-site-hint { font-size: 11px; color: var(--np-muted); line-height: 1.5; }
+.sun-dial { width: 96px; height: 96px; cursor: grab; touch-action: none; border-radius: 50%; outline-offset: 2px; }
+.sun-dial:active { cursor: grabbing; }
+.sun-dial:focus-visible { outline: 2px solid var(--np-accent); }
+.sun-dial-ring { fill: var(--np-canvas); stroke: var(--np-line); stroke-width: 1.5; }
+.sun-dial-tick { stroke: #B8C0CE; stroke-width: 1.2; }
+.sun-dial-house { fill: var(--np-accent-soft); stroke: var(--np-accent); stroke-width: 1.4; }
+.sun-dial-roof { fill: none; stroke: var(--np-accent); stroke-width: 1.4; stroke-linejoin: round; }
+.sun-dial-needle { transition: transform 0.18s var(--np-ease); }
+.sun-dial-needle path { fill: #D9480F; }
+.sun-dial-needle text { font-size: 11px; font-weight: 700; fill: #D9480F; text-anchor: middle; }
+.sun-dial:active .sun-dial-needle { transition: none; }
+
+.sun-time { display: flex; flex-direction: column; gap: 10px; }
+.sun-time-row { display: flex; align-items: flex-end; gap: 8px; }
+
+.sun-busy { margin-left: 8px; font-weight: 500; text-transform: none; letter-spacing: 0; color: var(--np-accent); }
+.sun-rooms { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.sun-rooms li { display: grid; grid-template-columns: 64px 1fr auto 34px; align-items: center; gap: 8px; font-size: 13px; }
+.sun-room-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sun-room-val { font-variant-numeric: tabular-nums; color: var(--np-muted); font-size: 12px; text-align: right; }
+.sun-bar { height: 6px; border-radius: 3px; background: #EEF1F6; overflow: hidden; }
+.sun-bar i { display: block; height: 100%; border-radius: 3px; background: #F59E0B; transition: width 0.4s var(--np-ease); }
+.sun-grade { font-size: 11px; font-weight: 600; text-align: center; border-radius: 4px; padding: 1px 0; }
+.sun-grade.is-good { color: #B45309; background: #FEF3C7; }
+.sun-grade.is-mid { color: #576071; background: #EEF1F6; }
+.sun-grade.is-low { color: #475569; background: #E2E8F0; }
+.sun-note { margin: 10px 0 0; }
+
+/* 平面图上的日照层 */
+.sun-overlay { pointer-events: none; }
+.sun-image { mix-blend-mode: multiply; }
+.sun-dir line { stroke: #F59E0B; stroke-width: 40; stroke-dasharray: 120 90; stroke-linecap: round; }
+.sun-dir circle { fill: #FBBF24; stroke: #FFFFFF; stroke-width: 60; filter: drop-shadow(0 0 120px rgb(251 191 36 / 0.7)); }
+.sun-room-hours { font-size: 150px; font-weight: 600; text-anchor: middle; fill: #B45309; paint-order: stroke; stroke: #FFFFFF; stroke-width: 36px; }
+.sun-room-hours.is-good { fill: #C2410C; }
+.sun-room-hours.is-low { fill: #64748B; }
+.sun-compass circle { fill: #FFFFFF; stroke: var(--np-line); stroke-width: 24; }
+.sun-compass-n { fill: #D9480F; }
+.sun-compass-s { fill: #CBD2DE; }
+.sun-compass text { font-size: 220px; font-weight: 700; fill: #D9480F; text-anchor: middle; }

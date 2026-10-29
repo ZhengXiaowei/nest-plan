@@ -10,6 +10,7 @@ import {useDesignUi, type CameraPreset, type SceneOptions} from '../design/desig
 type CameraTarget = CameraPreset | {room: string};
 import {polygonCentroid, roomArea} from '../../model/geometry';
 import {SceneOverlay} from './SceneOverlay';
+import {doyOf, siteOf, sunDir3D} from '../../model/sun';
 import {usePlanStore} from '../../store/planStore';
 import {activeWalls, wallPieces, withCorners} from '../../model/walls';
 import {buildColliders, doorCollider, doorsOf, EYE_HEIGHT, openingsOnActiveWalls, startPose, tryMove, type DoorInfo} from './walk';
@@ -452,11 +453,13 @@ function Scene({plan, mode, input, opts, pip, labelEls}: {plan: Plan; mode: 'orb
   // 剖切只在环绕视角下生效，漫游时墙总是全高
   const cap = opts.cut && mode === 'orbit' ? CUT_HEIGHT : Infinity;
   const labelY = (Math.min(cap, plan.wallHeight) + 150) * M;
+  const sunDay = useDesignUi((s) => s.sunDay);
+  const sun = useMemo(() => sunDir3D(siteOf(plan), doyOf(sunDay), opts.hour), [plan, sunDay, opts.hour]);
   return (
     <>
       <EnvironmentMap intensity={opts.night ? 0.15 : 1} />
       <Exposure value={opts.night ? 1.25 : 1.05} />
-      <Lights cx={f.cx} cz={f.cz} span={Math.max(f.w, f.d)} hour={opts.hour} night={opts.night} />
+      <Lights cx={f.cx} cz={f.cz} span={Math.max(f.w, f.d)} sun={sun} night={opts.night} />
       {opts.night && <RoomLamps rooms={plan.rooms} height={plan.wallHeight} />}
       <group>
         <Ground cx={f.cx} cz={f.cz} w={f.w} d={f.d} night={opts.night} />

@@ -56,3 +56,24 @@ export const IconFile = () => (
 export const IconCopy = () => (
   <svg {...base} aria-hidden><rect x="9" y="9" width="11" height="11" rx="2" /><path d="M5 15V5a2 2 0 0 1 2-2h10" /></svg>
 );
+export const IconSun = () => (
+  <svg {...base} aria-hidden><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></svg>
+);
+export const IconHeartPulse = () => (
+  <svg {...base} aria-hidden><path d="M20.4 12.6 12 21l-8.4-8.4A5 5 0 0 1 12 6a5 5 0 0 1 8.4 6.6z" /><path d="M3 12h4l2-3 3 6 2-3h7" /></svg>
+);
+export const IconUsers = () => (
+  <svg {...base} aria-hidden><circle cx="9" cy="8" r="3.5" /><path d="M2.5 20a6.5 6.5 0 0 1 13 0" /><path d="M16 4.6a3.5 3.5 0 0 1 0 6.8M18.5 14a6.5 6.5 0 0 1 3 6" /></svg>
+);
+export const IconShare = () => (
+  <svg {...base} aria-hidden><path d="M12 15V3M7.5 7.5 12 3l4.5 4.5" /><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7" /></svg>
+);
+export const IconPin = () => (
+  <svg {...base} aria-hidden><path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z" /><circle cx="12" cy="9.5" r="2.5" /></svg>
+);
+export const IconCheck = () => (
+  <svg {...base} aria-hidden><path d="m5 12.5 4.5 4.5L19 7.5" /></svg>
+);
+export const IconSend = () => (
+  <svg {...base} aria-hidden><path d="M21 3 10 14M21 3l-7 18-4-7-7-4z" /></svg>
+);

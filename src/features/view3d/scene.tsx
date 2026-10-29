@@ -121,32 +121,39 @@ export function Ground({cx, cz, w, d, night = false}: {cx: number; cz: number; w
   );
 }
 
+/** 指向太阳的方向和高度角，见 model/sun 的 sunDir3D */
+export interface SunVector {
+  dir: [number, number, number];
+  el: number;
+}
+
 /**
- * 太阳的方位、高度和颜色：早晚低而暖，中午高而白。hour 7 到 18。
- * 方位从东南绕到西南，和原版的日照滑杆一致。
+ * 按真实太阳位置摆太阳光：高度角越低越暖越弱，落到地平线以下只剩一点暮光。
  */
-export function sunAt(hour: number, cx: number, cz: number) {
-  const t = (hour - 6) / 12;
-  const az = Math.PI * (0.15 + t * 0.7);
-  const el = Math.sin(Math.PI * t) * 1.05 + 0.15;
-  const warm = 1 - Math.sin(Math.PI * t);
+export function sunLight(sun: SunVector, cx: number, cz: number) {
+  const k = Math.max(0, Math.min(1, Math.sin(sun.el) / Math.sin((50 * Math.PI) / 180)));
+  const warm = 1 - k;
+  const d = 22;
+  // 太阳在地平线以下时，光从地平线附近打过来，避免从地底往上照
+  const y = Math.max(0.15, sun.dir[1]);
   return {
-    position: [cx + Math.cos(az) * 18, Math.sin(el) * 20 + 3, cz - Math.sin(az) * 10 + 8] as [number, number, number],
-    intensity: 1.2 + Math.sin(Math.PI * t) * 1.4,
-    color: new THREE.Color().setHSL(0.09, 0.5 + warm * 0.4, 0.92 - warm * 0.12),
+    position: [cx + sun.dir[0] * d, y * d, cz + sun.dir[2] * d] as [number, number, number],
+    intensity: sun.el <= 0 ? 0.15 : 0.6 + k * 2.2,
+    color: new THREE.Color().setHSL(0.08, 0.35 + warm * 0.55, 0.93 - warm * 0.15),
   };
 }
 
 /**
  * 天光 + 一盏带软阴影的太阳，阴影范围跟着户型大小走。
- * 给了 hour 就按时间摆太阳；night 时只留一点月光，屋里的灯另外加。
+ * 给了 sun 就按真实太阳摆；night 时只留一点月光，屋里的灯另外加。
  */
-export function Lights({cx, cz, span, hour, night = false}: {cx: number; cz: number; span: number; hour?: number; night?: boolean}) {
-  const sun = useRef<THREE.DirectionalLight>(null);
+export function Lights({cx, cz, span, sun, night = false}: {cx: number; cz: number; span: number; sun?: SunVector; night?: boolean}) {
+  const ref = useRef<THREE.DirectionalLight>(null);
   const half = span / 2 + 1.5;
-  const s = hour === undefined ? null : sunAt(hour, cx, cz);
+  const s = sun ? sunLight(sun, cx, cz) : null;
+  const dusk = sun ? Math.max(0, Math.min(1, (sun.el * 180) / Math.PI / 12)) : 1;
   useLayoutEffect(() => {
-    const l = sun.current;
+    const l = ref.current;
     if (!l) return;
     l.target.position.set(cx, 0, cz);
     l.target.updateMatrixWorld();
@@ -155,11 +162,11 @@ export function Lights({cx, cz, span, hour, night = false}: {cx: number; cz: num
   }, [cx, cz, half]);
   return (
     <>
-      <hemisphereLight args={['#FFF8EE', '#B9A88F', night ? 0.12 : 1.15]} />
+      <hemisphereLight args={['#FFF8EE', '#B9A88F', night ? 0.12 : 0.55 + 0.6 * dusk]} />
       {/* 室内补光：墙背光面在漫游时不至于发灰 */}
-      <ambientLight color={night ? '#9DB0D8' : '#FFF6EA'} intensity={night ? 0.06 : 0.55} />
+      <ambientLight color={night ? '#9DB0D8' : '#FFF6EA'} intensity={night ? 0.06 : 0.3 + 0.25 * dusk} />
       <directionalLight
-        ref={sun}
+        ref={ref}
         position={s ? s.position : [cx + 7, 14, cz + 5]}
         intensity={night ? 0.05 : (s?.intensity ?? 2.4)}
         color={night ? '#B8C6E8' : (s?.color ?? '#FFF1DD')}
