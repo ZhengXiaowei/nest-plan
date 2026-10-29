@@ -82,7 +82,7 @@ export default function TracePage() {
     setBusy(true);
     setError(null);
     try {
-      useTraceStore.getState().setRecognized(await recognizeFloorplan(aiSettings, {dataUrl: image.dataUrl}));
+      useTraceStore.getState().setRecognized(await recognizeFloorplan(aiSettings, image));
     } catch (e) {
       setError(`识别失败：${e instanceof Error ? e.message : String(e)}`);
     } finally {

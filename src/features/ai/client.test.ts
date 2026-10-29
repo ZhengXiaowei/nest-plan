@@ -33,7 +33,7 @@ describe('户型识别：模型回复里没有 JSON', () => {
   // 复现：模型回了空内容，界面只显示「识别失败：Unexpected end of JSON input」
   it('空回复给出看得懂的原因，不再是 JSON 解析的英文报错', async () => {
     reply({choices: [{message: {content: ''}, finish_reason: 'stop'}]});
-    const err = await recognizeFloorplan(settings('openai'), {dataUrl: 'data:image/png;base64,AAAA'}).catch((e: Error) => e);
+    const err = await recognizeFloorplan(settings('openai'), {dataUrl: 'data:image/png;base64,AAAA', width: 800, height: 600}).catch((e: Error) => e);
     expect(err).toBeInstanceOf(Error);
     expect((err as Error).message).not.toMatch(/Unexpected end of JSON input/);
     expect((err as Error).message).toMatch(/空回复/);
