@@ -1,10 +1,19 @@
 import {create} from 'zustand';
-import type {Furniture, MaterialId, Plan} from '../model/types';
+import type {Furniture, MaterialId, Measure, Plan, Wall} from '../model/types';
 import {createSamplePlan} from '../model/samplePlan';
 import {normAngle} from '../model/geometry';
+import {canDemolish, pushOut, wallRects} from '../model/walls';
 import {idbGet, idbSet} from '../lib/idb';
 
-export type Selection = {kind: 'furniture' | 'room' | 'wall' | 'opening'; id: string} | null;
+export type Selection = {kind: 'furniture' | 'room' | 'wall' | 'opening' | 'measure'; id: string} | null;
+
+/** 拆墙的结果，界面据此提示 */
+export type DemolishResult = 'demolished' | 'restored' | 'removed' | 'bearing' | 'exterior';
+
+/** 旧版本存档补齐新字段 */
+export function normalizePlan(p: Plan): Plan {
+  return {...p, demolished: p.demolished ?? [], measures: p.measures ?? []};
+}
 
 const HISTORY_LIMIT = 100;
 const SAVE_KEY = 'plan:current';
@@ -33,6 +42,12 @@ interface PlanState {
   addFurniture: (f: Furniture) => void;
   removeSelected: () => void;
   setRoomMaterial: (roomId: string, material: MaterialId) => void;
+
+  /** 拆除 / 恢复非承重墙；新砌的墙直接删掉 */
+  toggleDemolish: (wallId: string) => DemolishResult;
+  addWalls: (walls: Wall[]) => void;
+  addMeasure: (m: Measure) => void;
+  clearMeasures: () => void;
 }
 
 const mapFurniture = (plan: Plan, id: string, fn: (f: Furniture) => Furniture): Plan => ({
@@ -55,7 +70,7 @@ export const usePlanStore = create<PlanState>()((set, get) => ({
   },
 
   select: (selection) => set({selection}),
-  loadPlan: (plan) => set({plan, selection: null, past: [], future: []}),
+  loadPlan: (plan) => set({plan: normalizePlan(plan), selection: null, past: [], future: []}),
   undo: () =>
     set((s) => {
       const prev = s.past.at(-1);
@@ -74,17 +89,47 @@ export const usePlanStore = create<PlanState>()((set, get) => ({
     get().commit((p) => mapFurniture(p, id, (f) => ({...f, rot: normAngle(f.rot + delta)}))),
   updateFurniture: (id, change) => get().commit((p) => mapFurniture(p, id, (f) => ({...f, ...change}))),
   addFurniture: (f) => {
-    get().commit((p) => ({...p, furniture: [...p.furniture, f]}));
+    const [cx, cy] = pushOut(wallRects(get().plan), f);
+    const placed = {...f, cx, cy};
+    // 地毯放在最底层，不挡住上面的家具
+    get().commit((p) => ({...p, furniture: f.type === 'rug' ? [placed, ...p.furniture] : [...p.furniture, placed]}));
     set({selection: {kind: 'furniture', id: f.id}});
   },
   removeSelected: () => {
     const sel = get().selection;
-    if (sel?.kind !== 'furniture') return;
-    get().commit((p) => ({...p, furniture: p.furniture.filter((f) => f.id !== sel.id)}));
+    if (!sel) return;
+    if (sel.kind === 'furniture') {
+      get().commit((p) => ({...p, furniture: p.furniture.filter((f) => f.id !== sel.id)}));
+    } else if (sel.kind === 'measure') {
+      get().commit((p) => ({...p, measures: p.measures.filter((m) => m.id !== sel.id)}));
+    } else if (sel.kind === 'wall') {
+      const w = get().plan.walls.find((x) => x.id === sel.id);
+      if (!w || !canDemolish(w) || get().plan.demolished.includes(w.id)) return;
+      get().toggleDemolish(w.id);
+    } else return;
     set({selection: null});
   },
   setRoomMaterial: (roomId, material) =>
     get().commit((p) => ({...p, rooms: p.rooms.map((r) => (r.id === roomId ? {...r, material} : r))})),
+
+  toggleDemolish: (wallId) => {
+    const {plan} = get();
+    const w = plan.walls.find((x) => x.id === wallId);
+    if (!w) return 'restored';
+    if (w.added) {
+      get().commit((p) => ({...p, walls: p.walls.filter((x) => x.id !== wallId)}));
+      if (get().selection?.id === wallId) set({selection: null});
+      return 'removed';
+    }
+    if (w.kind === 'bearing') return 'bearing';
+    if (w.kind === 'exterior') return 'exterior';
+    const on = plan.demolished.includes(wallId);
+    get().commit((p) => ({...p, demolished: on ? p.demolished.filter((x) => x !== wallId) : [...p.demolished, wallId]}));
+    return on ? 'restored' : 'demolished';
+  },
+  addWalls: (walls) => get().commit((p) => ({...p, walls: [...p.walls, ...walls]})),
+  addMeasure: (m) => get().commit((p) => ({...p, measures: [...p.measures, m]})),
+  clearMeasures: () => get().commit((p) => ({...p, measures: []})),
 }));
 
 /** 启动时从 IndexedDB 恢复方案，之后防抖自动保存 */

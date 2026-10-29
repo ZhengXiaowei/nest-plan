@@ -1,5 +1,5 @@
-import {memo, useEffect, useMemo, useRef} from 'react';
-import {Canvas, useThree} from '@react-three/fiber';
+import {memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type RefObject} from 'react';
+import {Canvas, useFrame, useThree} from '@react-three/fiber';
 import {OrbitControls} from '@react-three/drei';
 import * as THREE from 'three';
 import type {Furniture, Opening, Plan, Room, Vec2, Wall} from '../../model/types';
@@ -7,6 +7,13 @@ import {MATERIALS} from '../../model/materials';
 import {planBounds} from '../../model/geometry';
 import {FURNITURE_ELEVATION, FURNITURE_HEIGHT} from '../../model/catalog';
 import {usePlanStore} from '../../store/planStore';
+import {activeWalls, wallPieces} from '../../model/walls';
+import {buildColliders, doorCollider, doorsOf, EYE_HEIGHT, openingsOnActiveWalls, startPose, tryMove, type DoorInfo} from './walk';
+import './view3d.css';
+
+const FOV = 50;
+const REDUCED_MOTION = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+const ADDED_WALL_COLOR = '#DCE3FB';
 
 /**
  * 3D 视图：按需渲染（frameloop="demand"），只有相机或数据变化时才出帧。
@@ -56,18 +63,25 @@ function SegmentBox({a, b, t, y0, y1, material}: {a: Vec2; b: Vec2; t: number; y
   );
 }
 
-const Walls = memo(function Walls({walls, height}: {walls: Wall[]; height: number}) {
+const Walls = memo(function Walls({plan}: {plan: Plan}) {
+  // 墙在门窗处断开，拆掉的墙不画
+  const pieces = useMemo(() => {
+    const openings = openingsOnActiveWalls(plan);
+    return activeWalls(plan).flatMap((w) =>
+      wallPieces(w, openings).map(([a, b], i) => ({key: `${w.id}:${i}`, a, b, w})),
+    );
+  }, [plan]);
   return (
     <group>
-      {walls.map((w) => (
+      {pieces.map(({key, a, b, w}) => (
         <SegmentBox
-          key={w.id}
-          a={w.a}
-          b={w.b}
+          key={key}
+          a={a}
+          b={b}
           t={w.thickness}
           y0={0}
-          y1={w.height ?? (w.kind === 'low' ? 1000 : height)}
-          material={mat(WALL_COLOR[w.kind])}
+          y1={w.height ?? (w.kind === 'low' ? 1000 : plan.wallHeight)}
+          material={mat(w.added ? ADDED_WALL_COLOR : WALL_COLOR[w.kind])}
         />
       ))}
     </group>
@@ -96,6 +110,40 @@ const Openings = memo(function Openings({openings, height}: {openings: Opening[]
     </group>
   );
 });
+
+/** 平开门扇：绕铰链转，点一下开关，带缓动 */
+function DoorLeaf({d, open, onToggle}: {d: DoorInfo; open: boolean; onToggle: () => void}) {
+  const pivot = useRef<THREE.Group>(null);
+  const invalidate = useThree((s) => s.invalidate);
+  useLayoutEffect(() => {
+    if (pivot.current) pivot.current.rotation.y = open ? d.open : d.closed;
+    // 只在挂载时摆一次初始角度，之后由动画驱动
+  }, []);
+  useEffect(() => invalidate(), [open, invalidate]);
+  useFrame((_, dt) => {
+    const g = pivot.current;
+    if (!g) return;
+    const target = open ? d.open : d.closed;
+    const diff = target - g.rotation.y;
+    if (Math.abs(diff) < 0.0005) return;
+    g.rotation.y = REDUCED_MOTION ? target : g.rotation.y + diff * Math.min(1, dt * 7);
+    invalidate();
+  });
+  return (
+    <group ref={pivot} position={[d.hinge[0], 0, d.hinge[1]]}>
+      <mesh
+        geometry={unitBox}
+        material={mat('#D9CBB4', {roughness: 0.6})}
+        position={[d.leaf / 2, d.head / 2, 0]}
+        scale={[d.leaf - 0.01, d.head - 0.01, 0.04]}
+        onClick={(e) => {
+          e.stopPropagation();
+          onToggle();
+        }}
+      />
+    </group>
+  );
+}
 
 function roomShape(room: Room) {
   const shape = new THREE.Shape();
@@ -146,10 +194,15 @@ function framing(plan: Plan) {
   const radius = Math.hypot(w, d, plan.wallHeight * M) / 2;
   const distance = (radius / Math.sin(((FOV / 2) * Math.PI) / 180)) * 1.05;
   const dir = new THREE.Vector3(0.5, 0.95, 0.85).normalize();
-  return {cx, cz, w, d, position: [cx + dir.x * distance, dir.y * distance, cz + dir.z * distance] as [number, number, number]};
+  return {
+    cx,
+    cz,
+    w,
+    d,
+    target: [cx, 0, cz] as [number, number, number],
+    position: [cx + dir.x * distance, dir.y * distance, cz + dir.z * distance] as [number, number, number],
+  };
 }
-
-const FOV = 40;
 
 /** 毛坯地面：没圈成房间的地方也有地，不会露出背景 */
 function Ground({cx, cz, w, d}: {cx: number; cz: number; w: number; d: number}) {
@@ -160,58 +213,319 @@ function Ground({cx, cz, w, d}: {cx: number; cz: number; w: number; d: number}) 
   );
 }
 
-/** 换了户型（比如刚从还原页生成）就重新取景 */
-function Reframe({planId, position, target}: {planId: string; position: [number, number, number]; target: [number, number, number]}) {
+/** 漫游时的输入：键盘、摇杆、拖动转向，由 DOM 层写入，场景里每帧读取 */
+export interface WalkInput {
+  keys: Set<string>;
+  joy: [number, number];
+  look: [number, number];
+}
+
+type Tween = {t0: number; dur: number; fromPos: THREE.Vector3; toPos: THREE.Vector3; fromQ: THREE.Quaternion; toQ: THREE.Quaternion; done: () => void};
+
+const easeInOut = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
+
+/**
+ * 相机控制：环绕和漫游之间飞过去（约 0.9 秒），漫游时处理走路、转头、碰撞和开门。
+ */
+function CameraRig({
+  plan,
+  mode,
+  input,
+  doors,
+  doorOpen,
+  toggleDoor,
+}: {
+  plan: Plan;
+  mode: 'orbit' | 'walk';
+  input: RefObject<WalkInput>;
+  doors: DoorInfo[];
+  doorOpen: Record<string, boolean>;
+  toggleDoor: (id: string) => void;
+}) {
   const camera = useThree((s) => s.camera);
-  const controls = useThree((s) => s.controls) as unknown as {target: THREE.Vector3; update(): void} | null;
+  const controls = useThree((s) => s.controls) as unknown as {target: THREE.Vector3; enabled: boolean; update(): void} | null;
   const invalidate = useThree((s) => s.invalidate);
+  const tween = useRef<Tween | null>(null);
+  const walking = useRef(false);
+  const euler = useRef(new THREE.Euler(0, 0, 0, 'YXZ'));
+  const colliders = useMemo(() => buildColliders(plan), [plan]);
+  const frame = framing(plan);
   const first = useRef(true);
+
+  const flyTo = (pos: THREE.Vector3, q: THREE.Quaternion, done: () => void) => {
+    tween.current = {t0: performance.now(), dur: REDUCED_MOTION ? 0 : 900, fromPos: camera.position.clone(), toPos: pos, fromQ: camera.quaternion.clone(), toQ: q, done};
+    invalidate();
+  };
+
   useEffect(() => {
-    if (first.current) {
+    if (first.current && mode === 'orbit') {
       first.current = false;
       return;
     }
-    camera.position.set(...position);
-    controls?.target.set(...target);
-    controls?.update();
+    first.current = false;
+    if (mode === 'walk') {
+      if (controls) controls.enabled = false;
+      walking.current = false;
+      const {pos, yaw} = startPose(plan);
+      euler.current.set(0, yaw, 0);
+      flyTo(new THREE.Vector3(pos[0], EYE_HEIGHT, pos[1]), new THREE.Quaternion().setFromEuler(euler.current), () => (walking.current = true));
+    } else {
+      walking.current = false;
+      const look = new THREE.Matrix4().lookAt(new THREE.Vector3(...frame.position), new THREE.Vector3(...frame.target), new THREE.Vector3(0, 1, 0));
+      flyTo(new THREE.Vector3(...frame.position), new THREE.Quaternion().setFromRotationMatrix(look), () => {
+        if (!controls) return;
+        controls.target.set(...frame.target);
+        controls.enabled = true;
+        controls.update();
+      });
+    }
+    // 只跟着模式切换
+  }, [mode]);
+
+  // 换了户型（比如刚从还原页生成）就重新取景
+  useEffect(() => {
+    if (mode !== 'orbit' || !controls) return;
+    camera.position.set(...frame.position);
+    controls.target.set(...frame.target);
+    controls.update();
     invalidate();
-    // 只在换户型时取景，编辑家具不打断用户的视角
-  }, [planId]);
+  }, [plan.id]);
+
+  // E 开关最近的门
+  useEffect(() => {
+    if (mode !== 'walk') return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() !== 'e' || !walking.current) return;
+      const p: [number, number] = [camera.position.x, camera.position.z];
+      let best: DoorInfo | null = null;
+      let bestD = 1.8;
+      for (const d of doors) {
+        const dist = Math.hypot(d.mid[0] - p[0], d.mid[1] - p[1]);
+        if (dist < bestD) {
+          bestD = dist;
+          best = d;
+        }
+      }
+      if (best) toggleDoor(best.id);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [mode, doors, toggleDoor, camera]);
+
+  useFrame((_, dt) => {
+    const tw = tween.current;
+    if (tw) {
+      const t = tw.dur ? Math.min(1, (performance.now() - tw.t0) / tw.dur) : 1;
+      const k = easeInOut(t);
+      camera.position.lerpVectors(tw.fromPos, tw.toPos, k);
+      camera.quaternion.slerpQuaternions(tw.fromQ, tw.toQ, k);
+      if (t >= 1) {
+        tween.current = null;
+        tw.done();
+      }
+      invalidate();
+      return;
+    }
+    if (mode !== 'walk' || !walking.current) return;
+    const inp = input.current;
+    if (!inp) return;
+
+    // 转头：鼠标位移或拖动累计量
+    const e = euler.current;
+    e.y -= inp.look[0] * 0.0024;
+    e.x = Math.max(-1.45, Math.min(1.45, e.x - inp.look[1] * 0.0024));
+    inp.look[0] = 0;
+    inp.look[1] = 0;
+    camera.quaternion.setFromEuler(e);
+
+    // 走：前后左右 + 摇杆
+    const k = inp.keys;
+    let fwd = (k.has('w') || k.has('arrowup') ? 1 : 0) - (k.has('s') || k.has('arrowdown') ? 1 : 0) - inp.joy[1];
+    let side = (k.has('d') || k.has('arrowright') ? 1 : 0) - (k.has('a') || k.has('arrowleft') ? 1 : 0) + inp.joy[0];
+    const mag = Math.hypot(fwd, side);
+    if (mag > 1) {
+      fwd /= mag;
+      side /= mag;
+    }
+    if (mag < 0.01) return;
+    const speed = (k.has('shift') ? 2.8 : 1.4) * Math.min(dt, 0.05);
+    const sin = Math.sin(e.y);
+    const cos = Math.cos(e.y);
+    // yaw=0 时朝 -z 看
+    const dx = (-sin * fwd + cos * side) * speed;
+    const dz = (-cos * fwd - sin * side) * speed;
+    const closedDoors = doors.filter((d) => !doorOpen[d.id]).map(doorCollider);
+    const [nx, nz] = tryMove(closedDoors.length ? [...colliders, ...closedDoors] : colliders, [camera.position.x, camera.position.z], dx, dz);
+    camera.position.x = nx;
+    camera.position.z = nz;
+  });
+
   return null;
 }
 
-function Scene({plan}: {plan: Plan}) {
+function Scene({plan, mode, input}: {plan: Plan; mode: 'orbit' | 'walk'; input: RefObject<WalkInput>}) {
   const f = framing(plan);
-  const {cx, cz} = f;
+  const openings = useMemo(() => openingsOnActiveWalls(plan), [plan]);
+  const doors = useMemo(() => doorsOf(openings), [openings]);
+  // 门默认开着，漫游时一路走得通
+  const [closed, setClosed] = useState<Record<string, boolean>>({});
+  const doorOpen = useMemo(() => Object.fromEntries(doors.map((d) => [d.id, !closed[d.id]])), [doors, closed]);
+  const toggleDoor = useCallback((id: string) => setClosed((c) => ({...c, [id]: !c[id]})), []);
   return (
     <>
       <hemisphereLight args={['#FFFFFF', '#D6DBE4', 1.6]} />
-      <directionalLight position={[cx + 6, 12, cz + 8]} intensity={1.4} />
+      <directionalLight position={[f.cx + 6, 12, f.cz + 8]} intensity={1.4} />
       <group>
-        <Ground cx={cx} cz={cz} w={f.w} d={f.d} />
+        <Ground cx={f.cx} cz={f.cz} w={f.w} d={f.d} />
         <Floors rooms={plan.rooms} />
-        <Walls walls={plan.walls} height={plan.wallHeight} />
-        <Openings openings={plan.openings} height={plan.wallHeight} />
+        <Walls plan={plan} />
+        <Openings openings={openings} height={plan.wallHeight} />
+        {doors.map((d) => (
+          <DoorLeaf key={d.id} d={d} open={doorOpen[d.id] ?? true} onToggle={() => toggleDoor(d.id)} />
+        ))}
         <FurnitureMeshes furniture={plan.furniture} />
       </group>
-      <OrbitControls target={[cx, 0, cz]} enableDamping dampingFactor={0.12} maxPolarAngle={Math.PI / 2.1} makeDefault />
-      <Reframe planId={plan.id} position={f.position} target={[cx, 0, cz]} />
+      <OrbitControls target={f.target} enableDamping dampingFactor={0.12} maxPolarAngle={Math.PI / 2.1} makeDefault />
+      <CameraRig plan={plan} mode={mode} input={input} doors={doors} doorOpen={doorOpen} toggleDoor={toggleDoor} />
     </>
   );
 }
 
-export default function Viewer3D() {
+const FINE_POINTER = typeof matchMedia === 'function' && matchMedia('(pointer: fine)').matches;
+
+export default function Viewer3D({mode = 'orbit'}: {mode?: 'orbit' | 'walk'}) {
   const plan = usePlanStore((s) => s.plan);
   const {position} = framing(plan);
+  const input = useRef<WalkInput>({keys: new Set(), joy: [0, 0], look: [0, 0]});
+  const wrap = useRef<HTMLDivElement>(null);
+  const [locked, setLocked] = useState(false);
+  const walk = mode === 'walk';
+
+  // 漫游的键盘和鼠标输入
+  useEffect(() => {
+    if (!walk) return;
+    const inp = input.current;
+    const isTyping = (t: EventTarget | null) => t instanceof HTMLElement && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName);
+    const down = (e: KeyboardEvent) => {
+      if (isTyping(e.target) || e.metaKey || e.ctrlKey) return;
+      const k = e.key.toLowerCase();
+      inp.keys.add(k);
+      if (k.startsWith('arrow') || k === ' ') e.preventDefault();
+    };
+    const up = (e: KeyboardEvent) => inp.keys.delete(e.key.toLowerCase());
+    const blur = () => inp.keys.clear();
+    const move = (e: MouseEvent) => {
+      if (document.pointerLockElement && wrap.current?.contains(document.pointerLockElement)) {
+        inp.look[0] += e.movementX;
+        inp.look[1] += e.movementY;
+      }
+    };
+    const lockChange = () => setLocked(!!document.pointerLockElement && !!wrap.current?.contains(document.pointerLockElement));
+    window.addEventListener('keydown', down);
+    window.addEventListener('keyup', up);
+    window.addEventListener('blur', blur);
+    document.addEventListener('mousemove', move);
+    document.addEventListener('pointerlockchange', lockChange);
+    return () => {
+      window.removeEventListener('keydown', down);
+      window.removeEventListener('keyup', up);
+      window.removeEventListener('blur', blur);
+      document.removeEventListener('mousemove', move);
+      document.removeEventListener('pointerlockchange', lockChange);
+      inp.keys.clear();
+      if (document.pointerLockElement) document.exitPointerLock();
+    };
+  }, [walk]);
+
+  // 没锁鼠标时（触屏、或者用户不想锁），按住拖动也能转头
+  const drag = useRef<{x: number; y: number; id: number} | null>(null);
+  const onPointerDown = (e: ReactPointerEvent) => {
+    if (!walk || locked) return;
+    if (FINE_POINTER && e.pointerType === 'mouse' && e.button === 0 && e.detail >= 1 && !e.altKey) {
+      // 鼠标点一下画面就锁定，像游戏一样转头
+      const canvas = wrap.current?.querySelector('canvas');
+      const req = canvas?.requestPointerLock?.() as Promise<void> | undefined;
+      if (req && typeof req.catch === 'function') req.catch(() => {});
+    }
+    drag.current = {x: e.clientX, y: e.clientY, id: e.pointerId};
+  };
+  const onPointerMove = (e: ReactPointerEvent) => {
+    const d = drag.current;
+    if (!walk || locked || !d || d.id !== e.pointerId) return;
+    input.current.look[0] += (e.clientX - d.x) * 1.4;
+    input.current.look[1] += (e.clientY - d.y) * 1.4;
+    d.x = e.clientX;
+    d.y = e.clientY;
+  };
+  const endDrag = () => (drag.current = null);
+
   return (
-    <Canvas
-      frameloop="demand"
-      dpr={[1, 2]}
-      gl={{antialias: true, powerPreference: 'high-performance'}}
-      camera={{fov: FOV, near: 0.1, far: 400, position}}
+    <div ref={wrap} className={walk ? 'v3-wrap is-walk' : 'v3-wrap'} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={endDrag} onPointerCancel={endDrag}>
+      <Canvas
+        frameloop={walk ? 'always' : 'demand'}
+        dpr={[1, 2]}
+        gl={{antialias: true, powerPreference: 'high-performance'}}
+        camera={{fov: FOV, near: 0.05, far: 400, position}}
+      >
+        <color attach="background" args={['#F3F5F8']} />
+        <Scene plan={plan} mode={mode} input={input} />
+      </Canvas>
+      {walk && (
+        <>
+          {locked && <div className="v3-cross" aria-hidden />}
+          <p className="v3-walk-hint">
+            {FINE_POINTER
+              ? locked
+                ? 'WASD 移动 · 鼠标转向 · Shift 快走 · E 开关门 · Esc 松开鼠标'
+                : '点一下画面锁定鼠标转向，或按住拖动 · WASD 移动 · Shift 快走 · E 开关门'
+              : '左下摇杆移动 · 拖动画面转向 · 点门开关'}
+          </p>
+          {!FINE_POINTER && <Joystick input={input} />}
+        </>
+      )}
+    </div>
+  );
+}
+
+/** 触屏摇杆：推多远走多快 */
+function Joystick({input}: {input: RefObject<WalkInput>}) {
+  const knob = useRef<HTMLElement>(null);
+  const id = useRef<number | null>(null);
+  const R = 50;
+  const update = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    let dx = e.clientX - (r.left + r.width / 2);
+    let dy = e.clientY - (r.top + r.height / 2);
+    const m = Math.hypot(dx, dy);
+    if (m > R) {
+      dx = (dx / m) * R;
+      dy = (dy / m) * R;
+    }
+    input.current.joy = [dx / R, dy / R];
+    if (knob.current) knob.current.style.transform = `translate(${dx}px, ${dy}px)`;
+  };
+  const end = () => {
+    id.current = null;
+    input.current.joy = [0, 0];
+    if (knob.current) knob.current.style.transform = '';
+  };
+  return (
+    <div
+      className="v3-joy"
+      onPointerDown={(e) => {
+        e.stopPropagation();
+        id.current = e.pointerId;
+        e.currentTarget.setPointerCapture(e.pointerId);
+        update(e);
+      }}
+      onPointerMove={(e) => {
+        e.stopPropagation();
+        if (e.pointerId === id.current) update(e);
+      }}
+      onPointerUp={end}
+      onPointerCancel={end}
     >
-      <color attach="background" args={['#F3F5F8']} />
-      <Scene plan={plan} />
-    </Canvas>
+      <i ref={knob} />
+    </div>
   );
 }

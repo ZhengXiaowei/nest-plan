@@ -1,4 +1,6 @@
 import {lazy, Suspense, useEffect, useState} from 'react';
+import {useDesignUi, type DesignTool} from './features/design/designUi';
+import {Toaster} from './lib/toast';
 import {SegmentedControl, SegmentedControlItem} from '@astryxdesign/core/SegmentedControl';
 import {Button} from '@astryxdesign/core/Button';
 import {IconButton} from '@astryxdesign/core/IconButton';
@@ -26,6 +28,7 @@ export function App() {
         {route === 'replay' && <ReplayPage />}
       </Suspense>
       <AiDialogSlot />
+      <Toaster />
     </div>
   );
 }
@@ -79,6 +82,8 @@ function TopBar({route}: {route: Route}) {
 }
 
 /** 设计页的快捷键；还原页有自己的一套 */
+const TOOL_KEYS: Record<string, DesignTool> = {v: 'select', m: 'measure', x: 'demolish', b: 'build'};
+
 function useDesignShortcuts(enabled: boolean) {
   useEffect(() => {
     if (!enabled) return;
@@ -94,6 +99,8 @@ function useDesignShortcuts(enabled: boolean) {
       } else if (mod && e.key.toLowerCase() === 'y') {
         e.preventDefault();
         store.redo();
+      } else if (!mod && !e.altKey && useDesignUi.getState().view === '2d' && TOOL_KEYS[e.key.toLowerCase()]) {
+        useDesignUi.getState().setTool(TOOL_KEYS[e.key.toLowerCase()]!);
       } else if (e.key === 'Delete' || e.key === 'Backspace') {
         store.removeSelected();
       } else if (e.key === 'r' && store.selection?.kind === 'furniture') {

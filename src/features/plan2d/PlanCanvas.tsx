@@ -1,8 +1,13 @@
-import {memo, useCallback, useEffect, useLayoutEffect, useRef, type PointerEvent as ReactPointerEvent} from 'react';
-import type {Furniture, Opening, Room, Wall} from '../../model/types';
+import {memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent} from 'react';
+import {toast} from '../../lib/toast';
+import type {Furniture, Measure, Opening, Room, Vec2, Wall} from '../../model/types';
 import {MATERIALS} from '../../model/materials';
 import {planBounds, polygonCentroid, roomArea, segmentOutline, snap} from '../../model/geometry';
-import {usePlanStore, type Selection} from '../../store/planStore';
+import {activeWalls, snapFurniture, snapMeasurePoint, wallLength, wallRects, type Rect} from '../../model/walls';
+import {usePlanStore, type DemolishResult, type Selection} from '../../store/planStore';
+import {useDesignUi} from '../design/designUi';
+import {snapToWalls} from '../../model/snap';
+import {uid} from '../../lib/id';
 import {furnitureSymbol} from './furnitureSymbol';
 import './plan2d.css';
 
@@ -49,11 +54,35 @@ const RoomLabels = memo(function RoomLabels({rooms}: {rooms: Room[]}) {
   );
 });
 
-const WallsLayer = memo(function WallsLayer({walls, openings}: {walls: Wall[]; openings: Opening[]}) {
+const WallsLayer = memo(function WallsLayer({
+  walls,
+  openings,
+  demolished,
+  selectedId,
+}: {
+  walls: Wall[];
+  openings: Opening[];
+  demolished: string[];
+  selectedId: string | null;
+}) {
+  const gone = new Set(demolished);
   return (
     <g className="fp-walls">
       {walls.map((w) => (
-        <polygon key={w.id} data-wall={w.id} points={pts(segmentOutline(w.a, w.b, w.thickness))} className={`fp-wall fp-wall--${w.kind}`} />
+        <polygon
+          key={w.id}
+          data-wall={w.id}
+          points={pts(segmentOutline(w.a, w.b, w.thickness))}
+          className={[
+            'fp-wall',
+            `fp-wall--${w.kind}`,
+            gone.has(w.id) && 'is-demolished',
+            w.added && 'is-added',
+            w.id === selectedId && 'is-selected',
+          ]
+            .filter(Boolean)
+            .join(' ')}
+        />
       ))}
       {openings.map((o) => (
         <OpeningSymbol key={o.id} o={o} />
@@ -99,6 +128,45 @@ function OpeningSymbol({o}: {o: Opening}) {
   );
 }
 
+/* ---------- 测量线 ---------- */
+
+const fmtMm = (v: number) => Math.round(v).toLocaleString('zh-CN');
+
+function MeasureLine({a, b, selected, id}: {a: Vec2; b: Vec2; selected?: boolean; id?: string}) {
+  const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+  if (len < 1) return null;
+  const nx = -(b[1] - a[1]) / len;
+  const ny = (b[0] - a[0]) / len;
+  const tick = 110;
+  let deg = (Math.atan2(b[1] - a[1], b[0] - a[0]) * 180) / Math.PI;
+  if (deg > 90) deg -= 180;
+  if (deg <= -90) deg += 180;
+  const mx = (a[0] + b[0]) / 2;
+  const my = (a[1] + b[1]) / 2;
+  return (
+    <g className={selected ? 'fp-measure is-selected' : 'fp-measure'} data-measure={id}>
+      <line x1={a[0]} y1={a[1]} x2={b[0]} y2={b[1]} className="fp-measure-hit" />
+      <line x1={a[0]} y1={a[1]} x2={b[0]} y2={b[1]} className="fp-measure-line" />
+      {[a, b].map((p, i) => (
+        <line key={i} x1={p[0] - nx * tick} y1={p[1] - ny * tick} x2={p[0] + nx * tick} y2={p[1] + ny * tick} className="fp-measure-line" />
+      ))}
+      <text transform={`translate(${mx} ${my}) rotate(${deg})`} y={-60} textAnchor="middle" className="fp-measure-text">
+        {fmtMm(len)}
+      </text>
+    </g>
+  );
+}
+
+const MeasuresLayer = memo(function MeasuresLayer({measures, selectedId}: {measures: Measure[]; selectedId: string | null}) {
+  return (
+    <g className="fp-measures">
+      {measures.map((m) => (
+        <MeasureLine key={m.id} id={m.id} a={m.a} b={m.b} selected={m.id === selectedId} />
+      ))}
+    </g>
+  );
+});
+
 /* ---------- 家具层 ---------- */
 
 const FurnitureItem = memo(function FurnitureItem({f, selected}: {f: Furniture; selected: boolean}) {
@@ -130,20 +198,38 @@ const FurnitureItem = memo(function FurnitureItem({f, selected}: {f: Furniture; 
 /* ---------- 画布 ---------- */
 
 interface DragState {
-  mode: 'pan' | 'move' | 'rotate';
+  mode: 'pan' | 'move' | 'rotate' | 'measure';
   id?: string;
   startX: number;
   startY: number;
   origin: {x: number; y: number};
   vb?: ViewBox;
-  /** 按下时命中的房间（指针捕获后 pointerup 的 target 会变成 svg 本身） */
+  /** 按下时命中的房间 / 墙 / 测量线（指针捕获后 pointerup 的 target 会变成 svg 本身） */
   roomId?: string | null;
+  wallId?: string | null;
+  measureId?: string | null;
+  /** 拖家具时用的墙面矩形，按下时算一次 */
+  rects?: Rect[];
   moved: boolean;
 }
+
+const DEMOLISH_TOAST: Record<DemolishResult, string> = {
+  bearing: '承重墙不能拆',
+  exterior: '外墙属于建筑外围护结构，不建议拆',
+  demolished: '已标记拆除，可撤销',
+  restored: '已恢复这段墙',
+  removed: '已删掉这段新砌的墙',
+};
+
 
 export function PlanCanvas({onReady}: {onReady?: (api: {fit: () => void}) => void}) {
   const plan = usePlanStore((s) => s.plan);
   const selection = usePlanStore((s) => s.selection);
+  const tool = useDesignUi((s) => s.tool);
+  const [measureStart, setMeasureStart] = useState<Vec2 | null>(null);
+  const [cursor, setCursor] = useState<Vec2 | null>(null);
+  const [chain, setChain] = useState<Vec2[]>([]);
+  const buildWalls = useMemo(() => activeWalls(plan), [plan]);
   const svgRef = useRef<SVGSVGElement>(null);
   const vbRef = useRef<ViewBox>({x: 0, y: 0, w: 10000, h: 10000});
   const dragRef = useRef<DragState | null>(null);
@@ -197,6 +283,35 @@ export function PlanCanvas({onReady}: {onReady?: (api: {fit: () => void}) => voi
     return {x: p.x, y: p.y};
   }, []);
 
+  /** 1 个屏幕像素是多少 mm，吸附容差按屏幕像素算 */
+  const mmPerPx = useCallback(() => vbRef.current.w / Math.max(1, svgRef.current?.getBoundingClientRect().width ?? 1), []);
+
+  const measureSnap = (x: number, y: number, lock: boolean, from: Vec2 | null) =>
+    snapMeasurePoint(wallRects(usePlanStore.getState().plan), [x, y], 10 * mmPerPx(), from, lock);
+
+  const buildSnap = (x: number, y: number, free: boolean, from: Vec2 | null): Vec2 => {
+    const r = snapToWalls(buildWalls, [x, y], {radius: 12 * mmPerPx(), from: from ? [from[0], from[1]] : null, free});
+    // 吸到已有墙上的点保持原值，其余按 10mm 取整
+    return r.kind === 'endpoint' || r.kind === 'wall' ? r.p : [snap(r.p[0], 10), snap(r.p[1], 10)];
+  };
+
+  const cancelTool = useCallback(() => {
+    setMeasureStart(null);
+    setChain([]);
+    setCursor(null);
+  }, []);
+
+  // 换工具时丢掉画了一半的东西
+  useEffect(() => cancelTool(), [tool, cancelTool]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') cancelTool();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [cancelTool]);
+
   // 滚轮缩放（以光标为中心），触控板双指平移
   useEffect(() => {
     const svg = svgRef.current;
@@ -225,32 +340,77 @@ export function PlanCanvas({onReady}: {onReady?: (api: {fit: () => void}) => voi
     const target = e.target as Element;
     const store = usePlanStore.getState();
     const p = toPlan(e.clientX, e.clientY);
-    const furnEl = target.closest('[data-furniture]');
-    const isHandle = target.getAttribute('data-handle') === 'rotate';
     (e.currentTarget as Element).setPointerCapture(e.pointerId);
+    const panState = (): DragState => ({
+      mode: 'pan',
+      startX: e.clientX,
+      startY: e.clientY,
+      origin: {x: 0, y: 0},
+      vb: {...vbRef.current},
+      roomId: target.closest('[data-room]')?.getAttribute('data-room') ?? null,
+      wallId: target.closest('[data-wall]')?.getAttribute('data-wall') ?? null,
+      measureId: target.closest('[data-measure]')?.getAttribute('data-measure') ?? null,
+      moved: false,
+    });
 
+    if (e.button === 2) {
+      cancelTool();
+      return;
+    }
+    if (e.button === 1) {
+      dragRef.current = panState();
+      return;
+    }
+
+    if (tool === 'measure') {
+      const q = measureSnap(p.x, p.y, e.shiftKey, measureStart);
+      if (!measureStart) {
+        setMeasureStart(q);
+        setCursor(q);
+        dragRef.current = {mode: 'measure', startX: e.clientX, startY: e.clientY, origin: {x: q[0], y: q[1]}, moved: false};
+      } else {
+        // 第二下点击：落下测量线
+        if (Math.hypot(q[0] - measureStart[0], q[1] - measureStart[1]) > 20) store.addMeasure({id: uid('m'), a: measureStart, b: q});
+        setMeasureStart(null);
+        setCursor(null);
+      }
+      return;
+    }
+
+    const furnEl = tool === 'select' ? target.closest('[data-furniture]') : null;
     if (e.button === 0 && furnEl && !e.altKey) {
       const id = furnEl.getAttribute('data-furniture')!;
       const f = store.plan.furniture.find((x) => x.id === id);
       if (!f) return;
       store.select({kind: 'furniture', id});
       dragRef.current = {
-        mode: isHandle ? 'rotate' : 'move',
+        mode: target.getAttribute('data-handle') === 'rotate' ? 'rotate' : 'move',
         id,
         startX: p.x,
         startY: p.y,
         origin: {x: f.cx, y: f.cy},
+        rects: wallRects(store.plan),
         moved: false,
       };
       return;
     }
-    const roomId = target.closest('[data-room]')?.getAttribute('data-room') ?? null;
-    dragRef.current = {mode: 'pan', startX: e.clientX, startY: e.clientY, origin: {x: 0, y: 0}, vb: {...vbRef.current}, roomId, moved: false};
+    dragRef.current = panState();
   };
 
   const onPointerMove = (e: ReactPointerEvent<SVGSVGElement>) => {
     const d = dragRef.current;
-    if (!d) return;
+    if (!d || d.mode === 'measure') {
+      // 没在拖：给测量和砌墙画预览
+      if (tool === 'measure' && measureStart) {
+        const p = toPlan(e.clientX, e.clientY);
+        setCursor(measureSnap(p.x, p.y, e.shiftKey, measureStart));
+        if (d && Math.abs(e.clientX - d.startX) + Math.abs(e.clientY - d.startY) > 4) d.moved = true;
+      } else if (tool === 'build' && !d) {
+        const p = toPlan(e.clientX, e.clientY);
+        setCursor(buildSnap(p.x, p.y, e.shiftKey, chain.at(-1) ?? null));
+      }
+      return;
+    }
     const store = usePlanStore.getState();
     if (d.mode === 'pan' && d.vb) {
       const rect = svgRef.current!.getBoundingClientRect();
@@ -269,7 +429,13 @@ export function PlanCanvas({onReady}: {onReady?: (api: {fit: () => void}) => voi
       store.checkpoint();
     }
     if (d.mode === 'move' && d.id) {
-      store.moveFurniture(d.id, snap(d.origin.x + p.x - d.startX, SNAP_MM), snap(d.origin.y + p.y - d.startY, SNAP_MM));
+      const x = d.origin.x + p.x - d.startX;
+      const y = d.origin.y + p.y - d.startY;
+      const f = store.plan.furniture.find((it) => it.id === d.id);
+      if (!f) return;
+      // 靠近墙面自动贴上，按住 Alt 只按网格走
+      const [nx, ny] = e.altKey || !d.rects ? [snap(x, SNAP_MM), snap(y, SNAP_MM)] : snapFurniture(d.rects, f, x, y, 10 * mmPerPx(), SNAP_MM);
+      store.moveFurniture(d.id, nx, ny);
     } else if (d.mode === 'rotate' && d.id) {
       const f = store.plan.furniture.find((x) => x.id === d.id);
       if (!f) return;
@@ -280,14 +446,52 @@ export function PlanCanvas({onReady}: {onReady?: (api: {fit: () => void}) => voi
     }
   };
 
-  const onPointerUp = () => {
+  const onPointerUp = (e: ReactPointerEvent<SVGSVGElement>) => {
     const d = dragRef.current;
     dragRef.current = null;
-    if (!d || d.moved) return;
-    if (d.mode === 'pan') {
-      // 单击空白或房间：选中房间 / 取消选择
-      usePlanStore.getState().select(d.roomId ? {kind: 'room', id: d.roomId} : null);
+    if (!d) return;
+    const store = usePlanStore.getState();
+    if (d.mode === 'measure') {
+      // 按住拖出来的测量线，松手就落下；没拖动则等第二下点击
+      if (d.moved && measureStart && cursor && Math.hypot(cursor[0] - measureStart[0], cursor[1] - measureStart[1]) > 20) {
+        store.addMeasure({id: uid('m'), a: measureStart, b: cursor});
+        setMeasureStart(null);
+        setCursor(null);
+      }
+      return;
     }
+    if (d.moved || d.mode !== 'pan') return;
+
+    if (tool === 'demolish') {
+      if (d.wallId) {
+        const w = store.plan.walls.find((x) => x.id === d.wallId);
+        const result = store.toggleDemolish(d.wallId);
+        const body = result === 'demolished' && w ? `已标记拆除 ${fmtMm(wallLength(w))} mm 墙体，可撤销` : DEMOLISH_TOAST[result];
+        toast(body, result === 'bearing' || result === 'exterior' ? 'error' : 'info');
+      }
+      return;
+    }
+    if (tool === 'build') {
+      const p = toPlan(e.clientX, e.clientY);
+      const last = chain.at(-1) ?? null;
+      const q = buildSnap(p.x, p.y, e.shiftKey, last);
+      if (last && Math.hypot(q[0] - last[0], q[1] - last[1]) > 50) {
+        store.addWalls([{id: uid('w'), a: last, b: q, thickness: 120, kind: 'partition', added: true}]);
+      }
+      // 回到起点就收尾
+      if (chain.length > 1 && Math.hypot(q[0] - chain[0]![0], q[1] - chain[0]![1]) < 1) setChain([]);
+      else if (!last || Math.hypot(q[0] - last[0], q[1] - last[1]) > 50) setChain((c) => [...c, q]);
+      return;
+    }
+    // 选择：测量线 > 墙 > 房间 > 空白
+    const sel: Selection = d.measureId
+      ? {kind: 'measure', id: d.measureId}
+      : d.wallId
+        ? {kind: 'wall', id: d.wallId}
+        : d.roomId
+          ? {kind: 'room', id: d.roomId}
+          : null;
+    store.select(sel);
   };
 
   const selId = (kind: NonNullable<Selection>['kind']) => (selection?.kind === kind ? selection.id : null);
@@ -295,15 +499,23 @@ export function PlanCanvas({onReady}: {onReady?: (api: {fit: () => void}) => voi
   return (
     <svg
       ref={svgRef}
-      className="fp-canvas"
+      className={`fp-canvas tool-${tool}`}
       role="img"
       aria-label={`${plan.name} 平面图`}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={() => (dragRef.current = null)}
+      onDoubleClick={() => tool === 'build' && setChain([])}
+      onContextMenu={(e) => {
+        if (tool !== 'select') e.preventDefault();
+      }}
     >
       <defs>
+        <pattern id="fp-hatch-demolish" width={120} height={120} patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+          <rect width={120} height={120} fill="#FFF7ED" />
+          <line x1={0} y1={0} x2={0} y2={120} stroke="#FDBA74" strokeWidth={40} />
+        </pattern>
         <pattern id="fp-grid-minor" width={500} height={500} patternUnits="userSpaceOnUse">
           <path d="M 500 0 L 0 0 0 500" className="fp-grid-minor" />
         </pattern>
@@ -319,8 +531,20 @@ export function PlanCanvas({onReady}: {onReady?: (api: {fit: () => void}) => voi
           <FurnitureItem key={f.id} f={f} selected={f.id === selId('furniture')} />
         ))}
       </g>
-      <WallsLayer walls={plan.walls} openings={plan.openings} />
+      <WallsLayer walls={plan.walls} openings={plan.openings} demolished={plan.demolished} selectedId={selId('wall')} />
       <RoomLabels rooms={plan.rooms} />
+      <MeasuresLayer measures={plan.measures} selectedId={selId('measure')} />
+
+      {/* 进行中的测量 / 砌墙 */}
+      {tool === 'measure' && measureStart && cursor && <MeasureLine a={measureStart} b={cursor} />}
+      {tool === 'build' && chain.length > 1 && <polyline points={pts(chain)} className="fp-build-chain" />}
+      {tool === 'build' && chain.length > 0 && cursor && (
+        <>
+          <polygon points={pts(segmentOutline(chain.at(-1)!, cursor, 120))} className="fp-build-rubber" />
+          <MeasureLine a={chain.at(-1)!} b={cursor} />
+        </>
+      )}
+      {(tool === 'build' || tool === 'measure') && cursor && <circle cx={cursor[0]} cy={cursor[1]} r={6 * mmPerPx()} className="fp-tool-cursor" />}
     </svg>
   );
 }

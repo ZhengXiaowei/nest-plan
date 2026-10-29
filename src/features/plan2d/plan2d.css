@@ -49,3 +49,50 @@
 @media (prefers-reduced-motion: reduce) {
   .fp-room { transition: none; }
 }
+
+/* ---------- 拆改 ---------- */
+.fp-wall.is-demolished {
+  fill: url(#fp-hatch-demolish);
+  stroke: var(--np-warn);
+  stroke-width: 1.5;
+  stroke-dasharray: 6 4;
+  vector-effect: non-scaling-stroke;
+}
+.fp-wall.is-added { fill: var(--np-accent); }
+.fp-wall.is-selected { stroke: var(--np-accent); stroke-width: 3; vector-effect: non-scaling-stroke; }
+.fp-wall.is-added.is-selected { stroke: var(--np-ink); }
+
+.fp-canvas.tool-measure,
+.fp-canvas.tool-build { cursor: crosshair; }
+.fp-canvas.tool-demolish { cursor: default; }
+.fp-canvas.tool-demolish .fp-wall { cursor: not-allowed; }
+.fp-canvas.tool-demolish .fp-wall--partition,
+.fp-canvas.tool-demolish .fp-wall--low,
+.fp-canvas.tool-demolish .fp-wall.is-added { cursor: pointer; }
+.fp-canvas.tool-demolish .fp-wall--partition:hover,
+.fp-canvas.tool-demolish .fp-wall--low:hover,
+.fp-canvas.tool-demolish .fp-wall.is-added:hover { fill: var(--np-warn); }
+.fp-canvas:not(.tool-select) .fp-room { cursor: inherit; }
+.fp-canvas:not(.tool-select) .fp-room:hover { fill-opacity: 0.55; }
+.fp-canvas:not(.tool-select) .fp-furn { cursor: inherit; pointer-events: none; }
+
+.fp-build-chain { fill: none; stroke: var(--np-accent); stroke-width: 1; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; pointer-events: none; }
+.fp-build-rubber { fill: var(--np-accent); fill-opacity: 0.45; pointer-events: none; }
+.fp-tool-cursor { fill: #FFFFFF; stroke: var(--np-accent); stroke-width: 2; vector-effect: non-scaling-stroke; pointer-events: none; }
+
+/* ---------- 测量 ---------- */
+.fp-measure-line { stroke: var(--np-warn); stroke-width: 1.5; vector-effect: non-scaling-stroke; pointer-events: none; }
+.fp-measure-hit { stroke: transparent; stroke-width: 14; vector-effect: non-scaling-stroke; cursor: pointer; }
+.fp-measure-text {
+  font-size: 150px;
+  font-weight: 600;
+  fill: var(--np-warn);
+  font-variant-numeric: tabular-nums;
+  paint-order: stroke;
+  stroke: #FFFFFF;
+  stroke-width: 40px;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+.fp-measure.is-selected .fp-measure-line { stroke-width: 3; }
+.fp-canvas:not(.tool-select) .fp-measure-hit { pointer-events: none; }

@@ -19,6 +19,15 @@ export interface Wall {
   kind: WallKind;
   /** 不填则使用 plan.wallHeight；矮墙默认 1000 */
   height?: number;
+  /** 改造时新砌的墙（毛坯里没有） */
+  added?: boolean;
+}
+
+/** 平面图上的测量线 */
+export interface Measure {
+  id: string;
+  a: Vec2;
+  b: Vec2;
 }
 
 export type OpeningKind = 'window' | 'door' | 'slidingDoor';
@@ -103,7 +112,8 @@ export interface Plan {
   openings: Opening[];
   rooms: Room[];
   furniture: Furniture[];
-  /** 改造前被拆除的墙 id，用于改造回放 */
+  /** 改造时拆除的墙 id（只能是非承重墙），用于改造回放 */
   demolished: string[];
+  measures: Measure[];
   source: PlanSource;
 }

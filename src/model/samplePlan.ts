@@ -186,6 +186,7 @@ export function createSamplePlan(): Plan {
     rooms: ROOMS.map((r) => ({...r, poly: [...r.poly], material: r.material as MaterialId})),
     furniture,
     demolished: [],
+    measures: [],
     source: {kind: 'sample', note: '数据来自 wy51ai/floorplan-3d（MIT）'},
   };
 }
