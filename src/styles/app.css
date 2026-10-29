@@ -31,6 +31,19 @@ body { margin: 0; background: var(--np-bg); color: var(--np-ink); -webkit-font-s
 .np-brand small { color: var(--np-muted); font-weight: 500; letter-spacing: 0; }
 .np-topbar-nav { display: flex; justify-content: center; flex: 1; min-width: 0; }
 .np-topbar-actions { display: flex; align-items: center; gap: 8px; }
+.np-wide-only, .np-narrow-only { display: contents; }
+.np-narrow-only { display: none; }
+@media (max-width: 860px) {
+  .np-topbar { gap: 10px; padding: 0 12px; }
+  .np-brand small { display: none; }
+  .np-topbar-nav { justify-content: flex-start; overflow-x: auto; scrollbar-width: none; }
+  .np-topbar-nav::-webkit-scrollbar { display: none; }
+  .np-wide-only { display: none; }
+  .np-narrow-only { display: contents; }
+}
+@media (max-width: 480px) {
+  .np-brand { font-size: 0; gap: 0; }
+}
 
 /* 设计页：左库 / 画布 / 右面板 */
 .np-design { display: grid; grid-template-columns: 248px 1fr 320px; min-height: 0; view-transition-name: np-main; }

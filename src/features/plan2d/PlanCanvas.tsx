@@ -25,7 +25,7 @@ const pts = (poly: readonly (readonly [number, number])[]) => poly.map((p) => `$
 
 /* ---------- 静态图层：只在户型结构变化时重绘 ---------- */
 
-const RoomsLayer = memo(function RoomsLayer({rooms, selectedId}: {rooms: Room[]; selectedId: string | null}) {
+export const RoomsLayer = memo(function RoomsLayer({rooms, selectedId}: {rooms: Room[]; selectedId: string | null}) {
   return (
     <g className="fp-rooms">
       {rooms.map((r) => (
@@ -41,7 +41,7 @@ const RoomsLayer = memo(function RoomsLayer({rooms, selectedId}: {rooms: Room[];
   );
 });
 
-const RoomLabels = memo(function RoomLabels({rooms}: {rooms: Room[]}) {
+export const RoomLabels = memo(function RoomLabels({rooms}: {rooms: Room[]}) {
   return (
     <g className="fp-room-labels" aria-hidden>
       {rooms.filter((r) => r.counted !== false).map((r) => {
@@ -59,7 +59,7 @@ const RoomLabels = memo(function RoomLabels({rooms}: {rooms: Room[]}) {
   );
 });
 
-const WallsLayer = memo(function WallsLayer({
+export const WallsLayer = memo(function WallsLayer({
   walls,
   openings,
   demolished,
@@ -231,7 +231,7 @@ const DimsLayer = memo(function DimsLayer({walls}: {walls: Wall[]}) {
 
 /* ---------- 家具层 ---------- */
 
-const FurnitureItem = memo(function FurnitureItem({f, selected}: {f: Furniture; selected: boolean}) {
+export const FurnitureItem = memo(function FurnitureItem({f, selected}: {f: Furniture; selected: boolean}) {
   const fontSize = Math.max(90, Math.min(160, Math.min(f.w, f.d) / 4.5));
   const showLabel = f.type !== 'rug' && Math.min(f.w, f.d) >= 380;
   return (

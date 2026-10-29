@@ -15,6 +15,7 @@ import {DesignPage} from './features/design/DesignPage';
 // 还原页和回放页按需加载
 const TracePage = lazy(() => import('./features/trace/TracePage'));
 const ReplayPage = lazy(() => import('./features/replay/ReplayPage'));
+const VotePage = lazy(() => import('./features/family/VotePage'));
 const AiSettingsDialog = lazy(() => import('./features/ai/AiSettingsDialog'));
 
 export function App() {
@@ -28,6 +29,7 @@ export function App() {
         {route === 'trace' && <TracePage />}
         {route === 'design' && <DesignPage />}
         {route === 'replay' && <ReplayPage />}
+        {route === 'vote' && <VotePage />}
       </Suspense>
       <AiDialogSlot />
       <Toaster />
@@ -68,6 +70,7 @@ function TopBar({route}: {route: Route}) {
           <SegmentedControlItem value="trace" label="户型还原" />
           <SegmentedControlItem value="design" label="设计" />
           <SegmentedControlItem value="replay" label="改造回放" />
+          <SegmentedControlItem value="vote" label="一起选" />
         </SegmentedControl>
       </nav>
       <div className="np-topbar-actions">
@@ -78,7 +81,12 @@ function TopBar({route}: {route: Route}) {
             <LazyMenu kind="plan" label="方案" icon={<IconFile />} />
           </>
         )}
-        <Button label={aiReady ? 'AI 已连接' : '连接 AI'} icon={<IconSpark />} variant={aiReady ? 'secondary' : 'primary'} size="sm" onClick={() => openDialog(true)} />
+        <span className="np-wide-only">
+          <Button label={aiReady ? 'AI 已连接' : '连接 AI'} icon={<IconSpark />} variant={aiReady ? 'secondary' : 'primary'} size="sm" onClick={() => openDialog(true)} />
+        </span>
+        <span className="np-narrow-only">
+          <IconButton label={aiReady ? 'AI 已连接' : '连接 AI'} icon={<IconSpark />} variant={aiReady ? 'secondary' : 'primary'} size="sm" onClick={() => openDialog(true)} />
+        </span>
       </div>
     </header>
   );
