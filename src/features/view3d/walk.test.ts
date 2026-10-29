@@ -64,3 +64,16 @@ describe('起点', () => {
     expect(p.rooms.some((r) => pointInPolygon([pos[0] * 1000, pos[1] * 1000], r.poly))).toBe(true);
   });
 });
+
+describe('家具碰撞', () => {
+  it('沙发挡人，地毯不挡', () => {
+    const p = room();
+    p.furniture = [
+      {id: 's', type: 'sofa', name: '沙发', cx: 2000, cy: 2000, w: 2000, d: 900, rot: 0, color: '#999'},
+      {id: 'r', type: 'rug', name: '地毯', cx: 1000, cy: 1000, w: 1600, d: 1200, rot: 0, color: '#999'},
+    ];
+    const c = buildColliders(p);
+    expect(blocked(c, [2.0, 1.6])).toBe(true);
+    expect(blocked(c, [1.0, 1.0])).toBe(false);
+  });
+});

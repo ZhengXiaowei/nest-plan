@@ -172,3 +172,32 @@ export function renovationStats(plan: Plan): {demolishedM: number; addedM: numbe
   }
   return {demolishedM: d / 1000, addedM: a / 1000};
 }
+
+/**
+ * 墙角补齐：两段墙在端点相接（L 形、十字）时，各自向外延长对方半个墙厚，
+ * 否则中心线相接的墙角会缺一个小方块。T 形接头（端点落在另一段墙中间）本来就埋在墙里，不用管。
+ */
+export function withCorners(walls: readonly Wall[]): Wall[] {
+  return walls.map((w) => {
+    const len = wallLength(w);
+    if (len <= 0) return w;
+    const ux = (w.b[0] - w.a[0]) / len;
+    const uy = (w.b[1] - w.a[1]) / len;
+    const ext = (p: Vec2) => {
+      let e = 0;
+      for (const o of walls) {
+        if (o === w) continue;
+        const shared = Math.hypot(o.a[0] - p[0], o.a[1] - p[1]) < 1 || Math.hypot(o.b[0] - p[0], o.b[1] - p[1]) < 1;
+        if (!shared) continue;
+        const ol = wallLength(o) || 1;
+        const cross = Math.abs(ux * ((o.b[1] - o.a[1]) / ol) - uy * ((o.b[0] - o.a[0]) / ol));
+        if (cross > 0.1) e = Math.max(e, o.thickness / 2);
+      }
+      return e;
+    };
+    const ea = ext(w.a);
+    const eb = ext(w.b);
+    if (!ea && !eb) return w;
+    return {...w, a: [w.a[0] - ux * ea, w.a[1] - uy * ea], b: [w.b[0] + ux * eb, w.b[1] + uy * eb]};
+  });
+}

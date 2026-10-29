@@ -3,7 +3,7 @@ import {toast} from '../../lib/toast';
 import type {Furniture, Measure, Opening, Room, Vec2, Wall} from '../../model/types';
 import {MATERIALS} from '../../model/materials';
 import {planBounds, polygonCentroid, roomArea, segmentOutline, snap} from '../../model/geometry';
-import {activeWalls, snapFurniture, snapMeasurePoint, wallLength, wallRects, type Rect} from '../../model/walls';
+import {activeWalls, withCorners, snapFurniture, snapMeasurePoint, wallLength, wallRects, type Rect} from '../../model/walls';
 import {usePlanStore, type DemolishResult, type Selection} from '../../store/planStore';
 import {useDesignUi} from '../design/designUi';
 import {snapToWalls} from '../../model/snap';
@@ -66,9 +66,11 @@ const WallsLayer = memo(function WallsLayer({
   selectedId: string | null;
 }) {
   const gone = new Set(demolished);
+  // 墙角按改造前的墙补齐，拆掉一段时旁边的墙不会跟着缩
+  const drawn = withCorners(walls);
   return (
     <g className="fp-walls">
-      {walls.map((w) => (
+      {drawn.map((w) => (
         <polygon
           key={w.id}
           data-wall={w.id}

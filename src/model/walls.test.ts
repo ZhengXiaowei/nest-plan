@@ -97,3 +97,13 @@ describe('示例户型', () => {
     expect(p.demolished).toEqual([]);
   });
 });
+
+describe('墙角补齐', () => {
+  it('L 形相接各延长对方半个墙厚，T 形不变', async () => {
+    const {withCorners} = await import('./walls');
+    const out = withCorners([wall('h', [0, 0], [3000, 0]), wall('v', [0, 0], [0, 2000]), wall('t', [1500, 0], [1500, 2000])]);
+    expect(out[0]).toMatchObject({a: [-100, 0], b: [3000, 0]});
+    expect(out[1]).toMatchObject({a: [0, -100], b: [0, 2000]});
+    expect(out[2]).toMatchObject({a: [1500, 0], b: [1500, 2000]});
+  });
+});

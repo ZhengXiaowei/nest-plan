@@ -1,13 +1,13 @@
 import {memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type RefObject} from 'react';
-import {Canvas, useFrame, useThree} from '@react-three/fiber';
+import {Canvas, useFrame, useThree, type ThreeEvent} from '@react-three/fiber';
 import {OrbitControls} from '@react-three/drei';
 import * as THREE from 'three';
 import type {Furniture, Opening, Plan, Room, Vec2, Wall} from '../../model/types';
-import {MATERIALS} from '../../model/materials';
 import {planBounds} from '../../model/geometry';
-import {FURNITURE_ELEVATION, FURNITURE_HEIGHT} from '../../model/catalog';
+import {RoomEnvironment} from 'three/examples/jsm/environments/RoomEnvironment.js';
+import {floorMaterial, furnitureObject, setEnvironment} from './models';
 import {usePlanStore} from '../../store/planStore';
-import {activeWalls, wallPieces} from '../../model/walls';
+import {activeWalls, wallPieces, withCorners} from '../../model/walls';
 import {buildColliders, doorCollider, doorsOf, EYE_HEIGHT, openingsOnActiveWalls, startPose, tryMove, type DoorInfo} from './walk';
 import './view3d.css';
 
@@ -40,11 +40,12 @@ function mat(color: string, opts: {roughness?: number; transparent?: boolean; op
   return m;
 }
 
+// 墙面统一暖白乳胶漆，承重墙略深一点，方便在 3D 里分辨
 const WALL_COLOR: Record<Wall['kind'], string> = {
-  bearing: '#E5E7EB',
-  exterior: '#F3F4F6',
-  partition: '#F9FAFB',
-  low: '#F3F4F6',
+  bearing: '#E7E3DC',
+  exterior: '#F1EEE8',
+  partition: '#F5F2EC',
+  low: '#EFEBE4',
 };
 
 /** 沿线段放一个盒子：从 a 到 b，厚度 t，底高 y0 到顶高 y1（mm） */
@@ -56,6 +57,8 @@ function SegmentBox({a, b, t, y0, y1, material}: {a: Vec2; b: Vec2; t: number; y
     <mesh
       geometry={unitBox}
       material={material}
+      castShadow
+      receiveShadow
       position={[((a[0] + b[0]) / 2) * M, ((y0 + y1) / 2) * M, ((a[1] + b[1]) / 2) * M]}
       rotation={[0, -angle, 0]}
       scale={[len * M, (y1 - y0) * M, t * M]}
@@ -67,23 +70,24 @@ const Walls = memo(function Walls({plan}: {plan: Plan}) {
   // 墙在门窗处断开，拆掉的墙不画
   const pieces = useMemo(() => {
     const openings = openingsOnActiveWalls(plan);
-    return activeWalls(plan).flatMap((w) =>
+    return withCorners(activeWalls(plan)).flatMap((w) =>
       wallPieces(w, openings).map(([a, b], i) => ({key: `${w.id}:${i}`, a, b, w})),
     );
   }, [plan]);
   return (
     <group>
-      {pieces.map(({key, a, b, w}) => (
-        <SegmentBox
-          key={key}
-          a={a}
-          b={b}
-          t={w.thickness}
-          y0={0}
-          y1={w.height ?? (w.kind === 'low' ? 1000 : plan.wallHeight)}
-          material={mat(w.added ? ADDED_WALL_COLOR : WALL_COLOR[w.kind])}
-        />
-      ))}
+      {pieces.map(({key, a, b, w}) => {
+        const top = w.height ?? (w.kind === 'low' ? 1000 : plan.wallHeight);
+        return (
+        <group key={key}>
+          <SegmentBox a={a} b={b} t={w.thickness} y0={0} y1={top} material={mat(w.added ? ADDED_WALL_COLOR : WALL_COLOR[w.kind])} />
+          {/* 墙顶深色压顶，俯视时像剖面图一样清楚 */}
+          <SegmentBox a={a} b={b} t={w.thickness + 2} y0={top} y1={top + 12} material={mat(w.added ? '#2747D6' : '#34312D', {roughness: 0.9})} />
+          {/* 踢脚线：两侧各凸出 8mm，高 80mm */}
+          <SegmentBox a={a} b={b} t={w.thickness + 16} y0={0} y1={80} material={mat('#CFC6B8', {roughness: 0.6})} />
+        </group>
+        );
+      })}
     </group>
   );
 });
@@ -157,32 +161,54 @@ const Floors = memo(function Floors({rooms}: {rooms: Room[]}) {
   return (
     <group rotation={[-Math.PI / 2, 0, 0]}>
       {geos.map(({r, geo}) => (
-        <mesh key={r.id} geometry={geo} material={mat(MATERIALS[r.material].swatch, {roughness: 0.7})} />
+        <mesh key={r.id} geometry={geo} material={floorMaterial(r.material)} receiveShadow />
       ))}
     </group>
   );
 });
 
-const FurnitureMeshes = memo(function FurnitureMeshes({furniture}: {furniture: Furniture[]}) {
+/** 一件家具：模型按家具数据缓存，数据没变就不重建 */
+const FurnitureModel = memo(function FurnitureModel({f, selectable}: {f: Furniture; selectable: boolean}) {
+  const obj = useMemo(() => furnitureObject(f), [f]);
+  return (
+    <primitive
+      object={obj}
+      onClick={(e: ThreeEvent<MouseEvent>) => {
+        if (!selectable) return;
+        e.stopPropagation();
+        usePlanStore.getState().select({kind: 'furniture', id: f.id});
+      }}
+    />
+  );
+});
+
+const FurnitureMeshes = memo(function FurnitureMeshes({furniture, selectable}: {furniture: Furniture[]; selectable: boolean}) {
   return (
     <group>
-      {furniture.map((f) => {
-        const h = FURNITURE_HEIGHT[f.type] ?? 600;
-        const y0 = FURNITURE_ELEVATION[f.type] ?? 0;
-        return (
-          <mesh
-            key={f.id}
-            geometry={unitBox}
-            material={mat(f.color, {roughness: 0.9})}
-            position={[f.cx * M, (y0 + h / 2) * M + 0.002, f.cy * M]}
-            rotation={[0, (-f.rot * Math.PI) / 180, 0]}
-            scale={[f.w * M, h * M, f.d * M]}
-          />
-        );
-      })}
+      {furniture.map((f) => (
+        <FurnitureModel key={f.id} f={f} selectable={selectable} />
+      ))}
     </group>
   );
 });
+
+/** 环境反射：只挂给金属和光滑表面（模型模块里统一处理） */
+function EnvironmentMap() {
+  const gl = useThree((s) => s.gl);
+  const invalidate = useThree((s) => s.invalidate);
+  useEffect(() => {
+    const pm = new THREE.PMREMGenerator(gl);
+    const env = pm.fromScene(new RoomEnvironment(), 0.04).texture;
+    pm.dispose();
+    setEnvironment(env);
+    invalidate();
+    return () => {
+      setEnvironment(null);
+      env.dispose();
+    };
+  }, [gl, invalidate]);
+  return null;
+}
 
 /** 整套房子的外接球，用来摆相机：保证任何尺寸的户型一进来都完整可见 */
 function framing(plan: Plan) {
@@ -193,7 +219,7 @@ function framing(plan: Plan) {
   const cz = ((b.minY + b.maxY) / 2) * M;
   const radius = Math.hypot(w, d, plan.wallHeight * M) / 2;
   const distance = (radius / Math.sin(((FOV / 2) * Math.PI) / 180)) * 1.05;
-  const dir = new THREE.Vector3(0.5, 0.95, 0.85).normalize();
+  const dir = new THREE.Vector3(0.42, 1.25, 0.72).normalize();
   return {
     cx,
     cz,
@@ -207,9 +233,40 @@ function framing(plan: Plan) {
 /** 毛坯地面：没圈成房间的地方也有地，不会露出背景 */
 function Ground({cx, cz, w, d}: {cx: number; cz: number; w: number; d: number}) {
   return (
-    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[cx, -0.004, cz]} material={mat('#E2DFDA', {roughness: 0.95})}>
+    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[cx, -0.004, cz]} material={mat('#E2DFDA', {roughness: 0.95})} receiveShadow>
       <planeGeometry args={[w, d]} />
     </mesh>
+  );
+}
+
+/** 天光 + 一盏带软阴影的太阳，阴影范围跟着户型大小走 */
+function Lights({cx, cz, span}: {cx: number; cz: number; span: number}) {
+  const sun = useRef<THREE.DirectionalLight>(null);
+  const half = span / 2 + 1.5;
+  useLayoutEffect(() => {
+    const l = sun.current;
+    if (!l) return;
+    l.target.position.set(cx, 0, cz);
+    l.target.updateMatrixWorld();
+    Object.assign(l.shadow.camera, {left: -half, right: half, top: half, bottom: -half, near: 1, far: 60});
+    l.shadow.camera.updateProjectionMatrix();
+  }, [cx, cz, half]);
+  return (
+    <>
+      <hemisphereLight args={['#FFF8EE', '#B9A88F', 1.15]} />
+      {/* 室内补光：墙背光面在漫游时不至于发灰 */}
+      <ambientLight color="#FFF6EA" intensity={0.55} />
+      <directionalLight
+        ref={sun}
+        position={[cx + 7, 14, cz + 5]}
+        intensity={2.4}
+        color="#FFF1DD"
+        castShadow
+        shadow-mapSize={[SHADOW_MAP, SHADOW_MAP]}
+        shadow-bias={-0.0004}
+        shadow-normalBias={0.02}
+      />
+    </>
   );
 }
 
@@ -373,8 +430,8 @@ function Scene({plan, mode, input}: {plan: Plan; mode: 'orbit' | 'walk'; input: 
   const toggleDoor = useCallback((id: string) => setClosed((c) => ({...c, [id]: !c[id]})), []);
   return (
     <>
-      <hemisphereLight args={['#FFFFFF', '#D6DBE4', 1.6]} />
-      <directionalLight position={[f.cx + 6, 12, f.cz + 8]} intensity={1.4} />
+      <EnvironmentMap />
+      <Lights cx={f.cx} cz={f.cz} span={Math.max(f.w, f.d)} />
       <group>
         <Ground cx={f.cx} cz={f.cz} w={f.w} d={f.d} />
         <Floors rooms={plan.rooms} />
@@ -383,7 +440,7 @@ function Scene({plan, mode, input}: {plan: Plan; mode: 'orbit' | 'walk'; input: 
         {doors.map((d) => (
           <DoorLeaf key={d.id} d={d} open={doorOpen[d.id] ?? true} onToggle={() => toggleDoor(d.id)} />
         ))}
-        <FurnitureMeshes furniture={plan.furniture} />
+        <FurnitureMeshes furniture={plan.furniture} selectable={mode === 'orbit'} />
       </group>
       <OrbitControls target={f.target} enableDamping dampingFactor={0.12} maxPolarAngle={Math.PI / 2.1} makeDefault />
       <CameraRig plan={plan} mode={mode} input={input} doors={doors} doorOpen={doorOpen} toggleDoor={toggleDoor} />
@@ -392,6 +449,8 @@ function Scene({plan, mode, input}: {plan: Plan; mode: 'orbit' | 'walk'; input: 
 }
 
 const FINE_POINTER = typeof matchMedia === 'function' && matchMedia('(pointer: fine)').matches;
+// 平板 GPU 用小一点的阴影贴图
+const SHADOW_MAP = FINE_POINTER ? 4096 : 2048;
 
 export default function Viewer3D({mode = 'orbit'}: {mode?: 'orbit' | 'walk'}) {
   const plan = usePlanStore((s) => s.plan);
@@ -464,7 +523,8 @@ export default function Viewer3D({mode = 'orbit'}: {mode?: 'orbit' | 'walk'}) {
       <Canvas
         frameloop={walk ? 'always' : 'demand'}
         dpr={[1, 2]}
-        gl={{antialias: true, powerPreference: 'high-performance'}}
+        shadows="soft"
+        gl={{antialias: true, powerPreference: 'high-performance', toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.05}}
         camera={{fov: FOV, near: 0.05, far: 400, position}}
       >
         <color attach="background" args={['#F3F5F8']} />

@@ -1,6 +1,10 @@
 import type {Opening, Plan, Vec2} from '../../model/types';
 import {polygonArea, polygonCentroid} from '../../model/geometry';
 import {activeWalls, distToSegment, wallPieces} from '../../model/walls';
+import {FURNITURE_ELEVATION} from '../../model/catalog';
+
+/** 漫游时能穿过去的家具 */
+const WALK_THROUGH = new Set(['rug', 'tv', 'acwall', 'waterheater']);
 
 /**
  * 第一人称漫游用到的纯计算：碰撞体、起始位置、门。
@@ -36,6 +40,18 @@ export function buildColliders(plan: Plan): Collider[] {
   }
   for (const o of openings) {
     if (o.kind === 'window') out.push({a: [o.a[0] * M, o.a[1] * M], b: [o.b[0] * M, o.b[1] * M], half: (o.thickness / 2) * M});
+  }
+  // 家具也挡人（地毯、挂墙的电视空调除外），免得走进沙发里
+  for (const f of plan.furniture) {
+    if (WALK_THROUGH.has(f.type) || (FURNITURE_ELEVATION[f.type] ?? 0) > 1200) continue;
+    const r = (f.rot * Math.PI) / 180;
+    const c = Math.cos(r);
+    const sn = Math.sin(r);
+    const pt = (x: number, y: number): Vec2 => [(f.cx + x * c - y * sn) * M, (f.cy + x * sn + y * c) * M];
+    const hw = f.w / 2;
+    const hd = f.d / 2;
+    const q = [pt(-hw, -hd), pt(hw, -hd), pt(hw, hd), pt(-hw, hd)];
+    for (let i = 0; i < 4; i++) out.push({a: q[i]!, b: q[(i + 1) % 4]!, half: 0.01});
   }
   return out;
 }
