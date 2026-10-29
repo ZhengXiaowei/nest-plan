@@ -29,3 +29,15 @@ export const BrandMark = () => (
     <path d="M12 25v-7h8v7" fill="none" stroke="#fff" strokeWidth="2.4" strokeLinejoin="round" />
   </svg>
 );
+export const IconPlay = () => (
+  <svg {...base} aria-hidden><path d="M7 4.5v15l12-7.5z" fill="currentColor" /></svg>
+);
+export const IconPause = () => (
+  <svg {...base} aria-hidden><path d="M8 5v14M16 5v14" strokeWidth={2.6} /></svg>
+);
+export const IconRestart = () => (
+  <svg {...base} aria-hidden><path d="M4 12a8 8 0 1 0 2.3-5.7" /><path d="M4 4v5h5" /></svg>
+);
+export const IconVideo = () => (
+  <svg {...base} aria-hidden><rect x="3" y="6" width="13" height="12" rx="2" /><path d="m16 10 5-3v10l-5-3" /></svg>
+);

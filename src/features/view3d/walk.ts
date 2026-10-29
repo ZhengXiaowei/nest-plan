@@ -32,7 +32,7 @@ export function openingsOnActiveWalls(plan: Plan): Opening[] {
 }
 
 /** 实体墙段 + 窗（窗台挡人），推拉门和平开门洞口不挡 */
-export function buildColliders(plan: Plan): Collider[] {
+export function buildColliders(plan: Plan, opts: {furniture?: boolean} = {}): Collider[] {
   const openings = openingsOnActiveWalls(plan);
   const out: Collider[] = [];
   for (const w of activeWalls(plan)) {
@@ -42,18 +42,22 @@ export function buildColliders(plan: Plan): Collider[] {
     if (o.kind === 'window') out.push({a: [o.a[0] * M, o.a[1] * M], b: [o.b[0] * M, o.b[1] * M], half: (o.thickness / 2) * M});
   }
   // 家具也挡人（地毯、挂墙的电视空调除外），免得走进沙发里
-  for (const f of plan.furniture) {
-    if (WALK_THROUGH.has(f.type) || (FURNITURE_ELEVATION[f.type] ?? 0) > 1200) continue;
+  if (opts.furniture !== false) for (const q of furnitureFootprints(plan)) for (let i = 0; i < 4; i++) out.push({a: q[i]!, b: q[(i + 1) % 4]!, half: 0.01});
+  return out;
+}
+
+/** 挡人的家具外框四角（m），按顺序首尾相连 */
+export function furnitureFootprints(plan: Plan): Vec2[][] {
+  return plan.furniture.flatMap((f) => {
+    if (WALK_THROUGH.has(f.type) || (FURNITURE_ELEVATION[f.type] ?? 0) > 1200) return [];
     const r = (f.rot * Math.PI) / 180;
     const c = Math.cos(r);
     const sn = Math.sin(r);
     const pt = (x: number, y: number): Vec2 => [(f.cx + x * c - y * sn) * M, (f.cy + x * sn + y * c) * M];
     const hw = f.w / 2;
     const hd = f.d / 2;
-    const q = [pt(-hw, -hd), pt(hw, -hd), pt(hw, hd), pt(-hw, hd)];
-    for (let i = 0; i < 4; i++) out.push({a: q[i]!, b: q[(i + 1) % 4]!, half: 0.01});
-  }
-  return out;
+    return [[pt(-hw, -hd), pt(hw, -hd), pt(hw, hd), pt(-hw, hd)]];
+  });
 }
 
 export function blocked(colliders: readonly Collider[], p: Vec2, r = BODY_RADIUS): boolean {

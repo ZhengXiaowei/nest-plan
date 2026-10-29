@@ -1,0 +1,51 @@
+/* 改造回放：上面是画面，下面是播放条 */
+.rp { display: grid; grid-template-rows: 1fr auto; min-height: 0; height: 100%; background: var(--np-bg); view-transition-name: np-main; }
+.rp-stage { position: relative; min-height: 0; overflow: hidden; background: #F3F5F8; }
+/* 导出时画布按视频尺寸渲染，显示上仍铺满 */
+.rp-stage canvas { width: 100% !important; height: 100% !important; display: block; }
+
+.rp-caption { position: absolute; top: 24px; left: 24px; padding: 14px 20px 16px; background: rgba(255, 255, 255, 0.9); border: 1px solid var(--np-line); border-radius: 12px; pointer-events: none; max-width: min(420px, calc(100% - 48px)); will-change: opacity; }
+.rp-caption-no { font: 600 12px/1 var(--np-mono, ui-monospace, monospace); color: var(--np-accent); letter-spacing: 0.04em; }
+.rp-caption h2 { margin: 8px 0 0; font-size: 26px; line-height: 1.2; font-weight: 650; color: var(--np-ink); animation: rp-in 420ms var(--np-ease) both; }
+.rp-caption p { margin: 6px 0 0; font-size: 14px; color: var(--np-muted); animation: rp-in 420ms 60ms var(--np-ease) both; }
+@keyframes rp-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+.rp-big-play { position: absolute; left: 50%; top: 50%; width: 76px; height: 76px; margin: -38px 0 0 -38px; display: grid; place-items: center; border: 0; border-radius: 50%; background: var(--np-accent); color: #fff; cursor: pointer; box-shadow: 0 10px 30px rgba(39, 71, 214, 0.35); transition: transform 180ms var(--np-ease); }
+.rp-big-play svg { width: 30px; height: 30px; margin-left: 4px; }
+.rp-big-play:hover { transform: scale(1.06); }
+.rp-big-play:active { transform: scale(0.96); }
+.rp-big-play:focus-visible { outline: 3px solid var(--np-accent-soft); outline-offset: 3px; }
+
+.rp-export-mask { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(243, 245, 248, 0.82); backdrop-filter: blur(6px); }
+.rp-export-card { width: min(360px, calc(100% - 32px)); display: grid; gap: 12px; padding: 20px; background: var(--np-panel); border: 1px solid var(--np-line); border-radius: 14px; box-shadow: 0 12px 40px rgba(17, 24, 39, 0.1); }
+.rp-export-card p { margin: 0; font-size: 13px; color: var(--np-muted); }
+.rp-export-card > :last-child { justify-self: end; }
+
+.rp-bar { display: flex; align-items: center; gap: 10px; padding: 12px 16px 14px; background: var(--np-panel); border-top: 1px solid var(--np-line); }
+.rp-time { min-width: 104px; font: 500 13px/1 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--np-muted); font-variant-numeric: tabular-nums; }
+
+.rp-track { flex: 1; min-width: 0; display: grid; gap: 6px; padding: 8px 0 0; cursor: pointer; touch-action: none; outline: none; }
+.rp-track-bar { position: relative; height: 6px; border-radius: 3px; background: var(--np-line); }
+.rp-track-fill { position: absolute; inset: 0; border-radius: 3px; background: var(--np-accent); transform-origin: left; transform: scaleX(0); will-change: transform; }
+.rp-track-tick { position: absolute; top: -2px; width: 2px; height: 10px; margin-left: -1px; background: var(--np-panel); }
+.rp-track-head { position: absolute; top: 50%; left: 0; width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 50%; background: var(--np-panel); border: 3px solid var(--np-accent); box-shadow: 0 1px 3px rgba(17, 24, 39, 0.2); }
+.rp-track:focus-visible .rp-track-head { outline: 3px solid var(--np-accent-soft); }
+.rp-chapters { display: flex; }
+.rp-chapters button { flex-basis: 0; min-width: 0; padding: 2px 0; border: 0; background: none; text-align: left; font-size: 12px; color: var(--np-muted); cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rp-chapters button:hover { color: var(--np-ink); }
+.rp-chapters button:focus { outline: none; }
+.rp-chapters button:focus-visible { outline: 2px solid var(--np-accent); outline-offset: 1px; border-radius: 4px; }
+.rp-chapters button.is-current { color: var(--np-accent); font-weight: 600; }
+
+.rp-export-menu { display: grid; gap: 10px; width: 240px; padding: 4px; }
+.rp-export-menu p { margin: -4px 0 0; font-size: 12px; color: var(--np-muted); }
+
+@media (max-width: 720px) {
+  .rp-caption { top: 12px; left: 12px; padding: 10px 14px 12px; }
+  .rp-caption h2 { font-size: 20px; }
+  .rp-time { display: none; }
+  .rp-bar { gap: 6px; padding: 10px 12px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rp-caption h2, .rp-caption p { animation: none; }
+}

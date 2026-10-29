@@ -3,8 +3,8 @@
 ## wy51ai/floorplan-3d
 
 栖图的示例户型数据（墙体、门窗、房间、默认家具摆放）、家具库的尺寸与配色、地面材质单价，
-移植自开源项目 [wy51ai/floorplan-3d](https://github.com/wy51ai/floorplan-3d)。
-涉及的文件：`src/model/samplePlan.ts`、`src/model/catalog.ts`、`src/model/materials.ts`。
+以及 3D 家具模型的建模方式和地板贴图的绘制方式，移植自开源项目 [wy51ai/floorplan-3d](https://github.com/wy51ai/floorplan-3d)。
+涉及的文件：`src/model/samplePlan.ts`、`src/model/catalog.ts`、`src/model/materials.ts`、`src/features/view3d/models.ts`。
 原项目以 MIT 许可证发布，以下为其许可证全文：
 
 ```
