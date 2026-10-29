@@ -29,6 +29,17 @@ export function polygonCentroid(poly: readonly Vec2[]): Vec2 {
   return [cx / (3 * a), cy / (3 * a)];
 }
 
+/** 点是否在多边形内（射线法） */
+export function pointInPolygon(p: Vec2, poly: readonly Vec2[]): boolean {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [xi, yi] = poly[i]!;
+    const [xj, yj] = poly[j]!;
+    if (yi > p[1] !== yj > p[1] && p[0] < ((xj - xi) * (p[1] - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+
 export const mm2ToM2 = (v: number) => v / 1_000_000;
 
 export function roomArea(room: Room): number {
