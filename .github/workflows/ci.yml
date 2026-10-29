@@ -5,6 +5,10 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+  actions: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -17,4 +21,18 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
-      - run: npm run budget
+      # 拿 main 上一次成功构建的体积来对比；第一次或拿不到时只报告当前体积
+      - name: 取上一次的首屏体积
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          id=$(gh run list -R "$GITHUB_REPOSITORY" --workflow CI --branch main --status success --limit 1 --json databaseId -q '.[0].databaseId')
+          [ -n "$id" ] && gh run download "$id" -R "$GITHUB_REPOSITORY" -n bundle-size -D prev-size
+      - name: 首屏体积报告
+        run: npm run budget -- prev-size/size.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bundle-size
+          path: dist/size.json
+          retention-days: 90

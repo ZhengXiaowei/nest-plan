@@ -26,7 +26,7 @@
 npm install
 npm run dev        # 本地开发
 npm run build      # 类型检查 + 生产构建
-npm run budget     # 构建后检查首屏体积（JS 上限 150 KB gzip）
+npm run budget     # 构建后报告首屏体积（gzip），CI 里会和上一次对比
 npm run theme      # 改了 src/theme/blueprint.ts 之后重新生成主题
 ```
 
