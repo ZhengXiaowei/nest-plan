@@ -41,3 +41,18 @@ export const IconRestart = () => (
 export const IconVideo = () => (
   <svg {...base} aria-hidden><rect x="3" y="6" width="13" height="12" rx="2" /><path d="m16 10 5-3v10l-5-3" /></svg>
 );
+export const IconPlus = () => (
+  <svg {...base} aria-hidden><path d="M12 5v14M5 12h14" /></svg>
+);
+export const IconMinus = () => (
+  <svg {...base} aria-hidden><path d="M5 12h14" /></svg>
+);
+export const IconLayers = () => (
+  <svg {...base} aria-hidden><path d="m12 3 9 5-9 5-9-5 9-5Z" /><path d="m3 13 9 5 9-5" /></svg>
+);
+export const IconFile = () => (
+  <svg {...base} aria-hidden><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5Z" /><path d="M14 3v5h5" /></svg>
+);
+export const IconCopy = () => (
+  <svg {...base} aria-hidden><rect x="9" y="9" width="11" height="11" rx="2" /><path d="M5 15V5a2 2 0 0 1 2-2h10" /></svg>
+);

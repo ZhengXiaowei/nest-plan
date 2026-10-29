@@ -1,11 +1,14 @@
-import {lazy, Suspense, useCallback, useRef, useState} from 'react';
+import {lazy, Suspense, useState} from 'react';
 import {TabList, Tab} from '@astryxdesign/core/TabList';
 import {IconButton} from '@astryxdesign/core/IconButton';
+import {Button} from '@astryxdesign/core/Button';
 import {SegmentedControl, SegmentedControlItem} from '@astryxdesign/core/SegmentedControl';
 import {PlanCanvas} from '../plan2d/PlanCanvas';
-import {IconCube, IconFit} from '../../lib/icons';
+import {IconCopy, IconCube, IconFit, IconLayers, IconMinus, IconPlus, IconRotate, IconTrash} from '../../lib/icons';
+import {LazyMenu} from './LazyMenu';
+import {usePlanStore} from '../../store/planStore';
 import {LibraryPanel} from './LibraryPanel';
-import {TOOL_HINTS, useDesignUi, type DesignTool, type DesignView} from './designUi';
+import {planView, TOOL_HINTS, useDesignUi, type DesignTool, type DesignView} from './designUi';
 import {PropertiesTab} from './PropertiesTab';
 import {RoomsTab} from './RoomsTab';
 
@@ -22,8 +25,6 @@ export function DesignPage() {
   const setTool = useDesignUi((s) => s.setTool);
   const [showPip, setShowPip] = useState(true);
   const [tab, setTab] = useState<PanelTab>('props');
-  const fitRef = useRef<() => void>(() => {});
-  const onReady = useCallback((api: {fit: () => void}) => (fitRef.current = api.fit), []);
 
   return (
     <main className="np-design">
@@ -46,7 +47,14 @@ export function DesignPage() {
                 <SegmentedControlItem value="demolish" label="拆墙" />
                 <SegmentedControlItem value="build" label="砌墙" />
               </SegmentedControl>
-              <IconButton label="适应窗口" tooltip="适应窗口" icon={<IconFit />} variant="ghost" size="sm" onClick={() => fitRef.current()} />
+              <span className="np-toolbar-group">
+                <IconButton label="缩小" tooltip="缩小" icon={<IconMinus />} variant="ghost" size="sm" onClick={() => planView.zoom(1 / 1.25)} />
+                <IconButton label="放大" tooltip="放大" icon={<IconPlus />} variant="ghost" size="sm" onClick={() => planView.zoom(1.25)} />
+                <Button label="1:60" variant="ghost" size="sm" tooltip="按 1:60 显示" onClick={() => planView.scale(60)} />
+                <Button label="1:100" variant="ghost" size="sm" tooltip="按 1:100 显示" onClick={() => planView.scale(100)} />
+                <IconButton label="适应窗口" tooltip="适应窗口（F）" icon={<IconFit />} variant="ghost" size="sm" onClick={() => planView.fit()} />
+              </span>
+              <LazyMenu kind="layers" label="图层" icon={<IconLayers />} />
               <IconButton
                 label={showPip ? '隐藏 3D 小窗' : '显示 3D 小窗'}
                 tooltip={showPip ? '隐藏 3D 小窗' : '显示 3D 小窗'}
@@ -57,6 +65,7 @@ export function DesignPage() {
               />
             </>
           )}
+          {view !== '2d' && <SceneTools view={view} />}
         </div>
         {view === '2d' && (
           <p className="np-stage-hint" aria-live="polite">
@@ -67,13 +76,14 @@ export function DesignPage() {
         {view === '2d' ? (
           <>
             <div className="np-stage-full">
-              <PlanCanvas onReady={onReady} />
+              <PlanCanvas />
             </div>
+            <SelectionBar />
             {showPip && (
               <div className="np-pip">
                 <span className="np-pip-label">3D 预览 · 拖动旋转</span>
                 <Suspense fallback={<div className="np-loading">正在加载 3D…</div>}>
-                  <Viewer3D />
+                  <Viewer3D pip />
                 </Suspense>
               </div>
             )}
@@ -106,5 +116,47 @@ export function DesignPage() {
         </div>
       </aside>
     </main>
+  );
+}
+
+/** 3D 视图的工具：预设视角、剖切墙、显示开关 */
+function SceneTools({view}: {view: DesignView}) {
+  const cut = useDesignUi((s) => s.scene.cut);
+  const ui = useDesignUi.getState();
+  return (
+    <>
+      {view === '3d' && (
+        <span className="np-toolbar-group">
+          <Button label="斜视" variant="ghost" size="sm" onClick={() => ui.aim('iso')} />
+          <Button label="俯视" variant="ghost" size="sm" onClick={() => ui.aim('top')} />
+          <Button
+            label="剖切墙"
+            tooltip="墙只显示到 1.2 米，看清屋里"
+            variant={cut ? 'secondary' : 'ghost'}
+            size="sm"
+            aria-pressed={cut}
+            onClick={() => ui.setScene({cut: !cut})}
+          />
+        </span>
+      )}
+      <LazyMenu kind="scene" label="显示" icon={<IconLayers />} />
+    </>
+  );
+}
+
+/** 触屏上没有键盘：选中家具后在画布底部给旋转、复制、删除 */
+function SelectionBar() {
+  const sel = usePlanStore((s) => s.selection);
+  const f = usePlanStore((s) => (sel?.kind === 'furniture' ? s.plan.furniture.find((x) => x.id === sel.id) : undefined));
+  if (!f) return null;
+  const store = usePlanStore.getState();
+  return (
+    <div className="np-selbar" role="toolbar" aria-label={`${f.name}操作`}>
+      <span>{f.name}</span>
+      <Button label="旋转" icon={<IconRotate />} variant="ghost" size="sm" onClick={() => store.rotateFurniture(f.id, 90)} />
+      <IconButton label="复制" icon={<IconCopy />} variant="ghost" size="sm" onClick={() => store.duplicateSelected()} />
+      <IconButton label="删除" icon={<IconTrash />} variant="ghost" size="sm" onClick={() => store.removeSelected()} />
+      <Button label="完成" variant="secondary" size="sm" onClick={() => store.select(null)} />
+    </div>
   );
 }

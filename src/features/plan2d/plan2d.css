@@ -96,3 +96,16 @@
 }
 .fp-measure.is-selected .fp-measure-line { stroke-width: 3; }
 .fp-canvas:not(.tool-select) .fp-measure-hit { pointer-events: none; }
+
+/* 外圈尺寸标注 */
+.fp-dims { pointer-events: none; }
+.fp-dims line { stroke: var(--np-muted); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.fp-dims .fp-dim-tick { stroke-width: 2; }
+.fp-dims text { fill: var(--np-muted); font-variant-numeric: tabular-nums; }
+
+/* 改尺寸手柄和尺寸读数 */
+.fp-sel-size { fill: var(--np-accent); cursor: nwse-resize; }
+.fp-sel-dim { font-size: 150px; font-weight: 600; fill: var(--np-accent); paint-order: stroke; stroke: #FFFFFF; stroke-width: 40px; pointer-events: none; }
+
+/* 承重墙图层：承重墙换成主题色并加斜线，一眼看出哪些不能动 */
+.fp-canvas.show-bearing .fp-wall--bearing { fill: var(--np-accent); }

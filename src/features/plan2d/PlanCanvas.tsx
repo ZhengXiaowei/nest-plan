@@ -5,7 +5,8 @@ import {MATERIALS} from '../../model/materials';
 import {planBounds, polygonCentroid, roomArea, segmentOutline, snap} from '../../model/geometry';
 import {activeWalls, withCorners, snapFurniture, snapMeasurePoint, wallLength, wallRects, type Rect} from '../../model/walls';
 import {usePlanStore, type DemolishResult, type Selection} from '../../store/planStore';
-import {useDesignUi} from '../design/designUi';
+import {planView, useDesignUi} from '../design/designUi';
+import {dimensionChains, type DimChain} from '../../model/dims';
 import {snapToWalls} from '../../model/snap';
 import {uid} from '../../lib/id';
 import {furnitureSymbol} from './furnitureSymbol';
@@ -169,6 +170,61 @@ const MeasuresLayer = memo(function MeasuresLayer({measures, selectedId}: {measu
   );
 });
 
+/* ---------- 外圈尺寸标注 ---------- */
+
+const SHORT_DIM = 400;
+
+function DimLine({c}: {c: DimChain}) {
+  const t = c.ticks;
+  // 连着几段短的（墙厚这种）文字会挤在一起，隔一个放到线的另一侧
+  const flips: boolean[] = [];
+  for (let i = 1, run = 0; i < t.length; i++) {
+    const short = t[i]! - t[i - 1]! < SHORT_DIM;
+    run = short ? run + 1 : 0;
+    flips.push(short && run % 2 === 0);
+  }
+  const xy = (u: number, off = 0): [number, number] => (c.horiz ? [u, c.at + off] : [c.at + off, u]);
+  const [x0, y0] = xy(t[0]!);
+  const [x1, y1] = xy(t.at(-1)!);
+  return (
+    <g>
+      <line x1={x0} y1={y0} x2={x1} y2={y1} />
+      {t.map((u) => {
+        const [a, b] = xy(u, -170);
+        const [e, f] = xy(u, 170);
+        const [p, q] = xy(u);
+        return (
+          <g key={u}>
+            <line x1={a} y1={b} x2={e} y2={f} />
+            <line x1={p - 80} y1={q + 80} x2={p + 80} y2={q - 80} className="fp-dim-tick" />
+          </g>
+        );
+      })}
+      {t.slice(1).map((u, i) => {
+        const len = u - t[i]!;
+        const side = flips[i] ? -c.side : c.side;
+        const [x, y] = xy((u + t[i]!) / 2, side * 70);
+        return (
+          <text key={u} x={x} y={y} fontSize={len < SHORT_DIM ? 130 : 180} textAnchor="middle" dominantBaseline={side < 0 ? 'auto' : 'hanging'} transform={c.horiz ? undefined : `rotate(-90 ${x} ${y})`}>
+            {len}
+          </text>
+        );
+      })}
+    </g>
+  );
+}
+
+const DimsLayer = memo(function DimsLayer({walls}: {walls: Wall[]}) {
+  const chains = useMemo(() => dimensionChains(walls), [walls]);
+  return (
+    <g className="fp-dims" aria-hidden>
+      {chains.map((c, i) => (
+        <DimLine key={i} c={c} />
+      ))}
+    </g>
+  );
+});
+
 /* ---------- 家具层 ---------- */
 
 const FurnitureItem = memo(function FurnitureItem({f, selected}: {f: Furniture; selected: boolean}) {
@@ -191,6 +247,12 @@ const FurnitureItem = memo(function FurnitureItem({f, selected}: {f: Furniture; 
           <rect x={-f.w / 2 - 40} y={-f.d / 2 - 40} width={f.w + 80} height={f.d + 80} rx={30} className="fp-sel-box" />
           <line x1={0} y1={-f.d / 2 - 40} x2={0} y2={-f.d / 2 - 260} className="fp-sel-stem" />
           <circle data-handle="rotate" cx={0} cy={-f.d / 2 - 300} r={70} className="fp-sel-handle" />
+          <rect data-handle="size" x={f.w / 2 + 40 - 55} y={f.d / 2 + 40 - 55} width={110} height={110} className="fp-sel-size" />
+          <text transform={`rotate(${-f.rot})`} y={0} className="fp-sel-dim" textAnchor="middle" dominantBaseline="central">
+            <tspan x={0} dy={Math.max(f.w, f.d) / 2 + 260}>
+              {f.w} × {f.d}
+            </tspan>
+          </text>
         </>
       )}
     </g>
@@ -200,7 +262,7 @@ const FurnitureItem = memo(function FurnitureItem({f, selected}: {f: Furniture; 
 /* ---------- 画布 ---------- */
 
 interface DragState {
-  mode: 'pan' | 'move' | 'rotate' | 'measure';
+  mode: 'pan' | 'move' | 'rotate' | 'resize' | 'measure';
   id?: string;
   startX: number;
   startY: number;
@@ -212,6 +274,8 @@ interface DragState {
   measureId?: string | null;
   /** 拖家具时用的墙面矩形，按下时算一次 */
   rects?: Rect[];
+  /** 改尺寸时按下那一刻的家具 */
+  orig?: Furniture;
   moved: boolean;
 }
 
@@ -224,10 +288,11 @@ const DEMOLISH_TOAST: Record<DemolishResult, string> = {
 };
 
 
-export function PlanCanvas({onReady}: {onReady?: (api: {fit: () => void}) => void}) {
+export function PlanCanvas() {
   const plan = usePlanStore((s) => s.plan);
   const selection = usePlanStore((s) => s.selection);
   const tool = useDesignUi((s) => s.tool);
+  const layers = useDesignUi((s) => s.layers);
   const [measureStart, setMeasureStart] = useState<Vec2 | null>(null);
   const [cursor, setCursor] = useState<Vec2 | null>(null);
   const [chain, setChain] = useState<Vec2[]>([]);
@@ -245,7 +310,7 @@ export function PlanCanvas({onReady}: {onReady?: (api: {fit: () => void}) => voi
     const svg = svgRef.current;
     if (!svg) return;
     const b = planBounds(usePlanStore.getState().plan);
-    const pad = 900;
+    const pad = useDesignUi.getState().layers.dims ? 1700 : 900;
     const bw = b.maxX - b.minX + pad * 2;
     const bh = b.maxY - b.minY + pad * 2;
     const rect = svg.getBoundingClientRect();
@@ -260,7 +325,28 @@ export function PlanCanvas({onReady}: {onReady?: (api: {fit: () => void}) => voi
 
   useLayoutEffect(() => {
     fit();
-    onReady?.({fit});
+    // 以画面中心缩放
+    const zoomTo = (w: number) => {
+      const vb = vbRef.current;
+      const nw = Math.max(1500, Math.min(80000, w));
+      const k = nw / vb.w;
+      vbRef.current = {x: vb.x + (vb.w - nw) / 2, y: vb.y + (vb.h - vb.h * k) / 2, w: nw, h: vb.h * k};
+      applyViewBox();
+    };
+    planView.fit = fit;
+    planView.zoom = (k) => zoomTo(vbRef.current.w / k);
+    // 1 CSS 像素约 0.2646 mm，按 1:N 显示时一个像素代表 0.2646 × N mm
+    planView.scale = (ratio) => zoomTo((svgRef.current?.getBoundingClientRect().width ?? 1000) * (25.4 / 96) * ratio);
+    planView.toPlan = (x, y) => {
+      const svg = svgRef.current;
+      const r = svg?.getBoundingClientRect();
+      if (!svg || !r || x < r.left || x > r.right || y < r.top || y > r.bottom) return null;
+      const m = svg.getScreenCTM();
+      if (!m) return null;
+      const p = new DOMPoint(x, y).matrixTransform(m.inverse());
+      return [p.x, p.y];
+    };
+    planView.svg = () => svgRef.current;
     const svg = svgRef.current;
     if (!svg) return;
     // 容器尺寸变化时保持比例，不重置缩放
@@ -275,7 +361,7 @@ export function PlanCanvas({onReady}: {onReady?: (api: {fit: () => void}) => voi
     });
     ro.observe(svg);
     return () => ro.disconnect();
-  }, [fit, applyViewBox, onReady]);
+  }, [fit, applyViewBox]);
 
   const toPlan = useCallback((clientX: number, clientY: number) => {
     const svg = svgRef.current!;
@@ -338,7 +424,43 @@ export function PlanCanvas({onReady}: {onReady?: (api: {fit: () => void}) => voi
     return () => svg.removeEventListener('wheel', onWheel);
   }, [toPlan, applyViewBox]);
 
+  // 触屏双指：捏合缩放、拖动平移
+  const touches = useRef(new Map<number, {x: number; y: number}>());
+  const pinch = useRef<{vb: ViewBox; dist: number; mid: {x: number; y: number}} | null>(null);
+  const startPinch = () => {
+    const [a, b] = [...touches.current.values()];
+    if (!a || !b) return;
+    // 第二根手指落下：放弃单指正在做的事（拖家具的话撤回到按下前）
+    const d = dragRef.current;
+    if (d?.moved && (d.mode === 'move' || d.mode === 'rotate' || d.mode === 'resize')) usePlanStore.getState().undo();
+    dragRef.current = null;
+    const midScreen = {x: (a.x + b.x) / 2, y: (a.y + b.y) / 2};
+    pinch.current = {vb: {...vbRef.current}, dist: Math.hypot(a.x - b.x, a.y - b.y), mid: toPlan(midScreen.x, midScreen.y)};
+  };
+  const movePinch = () => {
+    const pc = pinch.current;
+    const [a, b] = [...touches.current.values()];
+    const svg = svgRef.current;
+    if (!pc || !a || !b || !svg) return;
+    const rect = svg.getBoundingClientRect();
+    const w = Math.max(1500, Math.min(80000, (pc.vb.w * pc.dist) / Math.max(1, Math.hypot(a.x - b.x, a.y - b.y))));
+    const h = (pc.vb.h * w) / pc.vb.w;
+    const sx = ((a.x + b.x) / 2 - rect.left) / rect.width;
+    const sy = ((a.y + b.y) / 2 - rect.top) / rect.height;
+    vbRef.current = {x: pc.mid.x - sx * w, y: pc.mid.y - sy * h, w, h};
+    applyViewBox();
+  };
+
   const onPointerDown = (e: ReactPointerEvent<SVGSVGElement>) => {
+    if (e.pointerType === 'touch') {
+      touches.current.set(e.pointerId, {x: e.clientX, y: e.clientY});
+      if (touches.current.size === 2) {
+        (e.currentTarget as Element).setPointerCapture(e.pointerId);
+        startPinch();
+        return;
+      }
+      if (touches.current.size > 2) return;
+    }
     const target = e.target as Element;
     const store = usePlanStore.getState();
     const p = toPlan(e.clientX, e.clientY);
@@ -385,8 +507,10 @@ export function PlanCanvas({onReady}: {onReady?: (api: {fit: () => void}) => voi
       const f = store.plan.furniture.find((x) => x.id === id);
       if (!f) return;
       store.select({kind: 'furniture', id});
+      const handle = target.getAttribute('data-handle');
       dragRef.current = {
-        mode: target.getAttribute('data-handle') === 'rotate' ? 'rotate' : 'move',
+        mode: handle === 'rotate' ? 'rotate' : handle === 'size' ? 'resize' : 'move',
+        orig: f,
         id,
         startX: p.x,
         startY: p.y,
@@ -400,6 +524,13 @@ export function PlanCanvas({onReady}: {onReady?: (api: {fit: () => void}) => voi
   };
 
   const onPointerMove = (e: ReactPointerEvent<SVGSVGElement>) => {
+    if (e.pointerType === 'touch' && touches.current.has(e.pointerId)) {
+      touches.current.set(e.pointerId, {x: e.clientX, y: e.clientY});
+      if (pinch.current) {
+        movePinch();
+        return;
+      }
+    }
     const d = dragRef.current;
     if (!d || d.mode === 'measure') {
       // 没在拖：给测量和砌墙画预览
@@ -436,8 +567,27 @@ export function PlanCanvas({onReady}: {onReady?: (api: {fit: () => void}) => voi
       const f = store.plan.furniture.find((it) => it.id === d.id);
       if (!f) return;
       // 靠近墙面自动贴上，按住 Alt 只按网格走
-      const [nx, ny] = e.altKey || !d.rects ? [snap(x, SNAP_MM), snap(y, SNAP_MM)] : snapFurniture(d.rects, f, x, y, 10 * mmPerPx(), SNAP_MM);
+      const free = e.altKey || !d.rects || !useDesignUi.getState().wallSnap;
+      const [nx, ny] = free ? [snap(x, SNAP_MM), snap(y, SNAP_MM)] : snapFurniture(d.rects!, f, x, y, 10 * mmPerPx(), SNAP_MM);
       store.moveFurniture(d.id, nx, ny);
+    } else if (d.mode === 'resize' && d.id && d.orig) {
+      // 拖右下角：对角固定，宽深跟着变
+      const o = d.orig;
+      const r = (o.rot * Math.PI) / 180;
+      const cos = Math.cos(r);
+      const sin = Math.sin(r);
+      const dx = p.x - o.cx;
+      const dy = p.y - o.cy;
+      const lx = dx * cos + dy * sin;
+      const ly = -dx * sin + dy * cos;
+      const w = Math.max(100, snap(lx + o.w / 2 - 40, SNAP_MM));
+      const dd = Math.max(100, snap(ly + o.d / 2 - 40, SNAP_MM));
+      const cxl = (w - o.w) / 2;
+      const cyl = (dd - o.d) / 2;
+      store.patch((pl) => ({
+        ...pl,
+        furniture: pl.furniture.map((x) => (x.id === o.id ? {...x, w, d: dd, cx: o.cx + cxl * cos - cyl * sin, cy: o.cy + cxl * sin + cyl * cos} : x)),
+      }));
     } else if (d.mode === 'rotate' && d.id) {
       const f = store.plan.furniture.find((x) => x.id === d.id);
       if (!f) return;
@@ -449,6 +599,14 @@ export function PlanCanvas({onReady}: {onReady?: (api: {fit: () => void}) => voi
   };
 
   const onPointerUp = (e: ReactPointerEvent<SVGSVGElement>) => {
+    if (e.pointerType === 'touch') {
+      touches.current.delete(e.pointerId);
+      if (pinch.current) {
+        if (touches.current.size < 2) pinch.current = null;
+        dragRef.current = null;
+        return;
+      }
+    }
     const d = dragRef.current;
     dragRef.current = null;
     if (!d) return;
@@ -501,13 +659,17 @@ export function PlanCanvas({onReady}: {onReady?: (api: {fit: () => void}) => voi
   return (
     <svg
       ref={svgRef}
-      className={`fp-canvas tool-${tool}`}
+      className={`fp-canvas tool-${tool}${layers.bearing ? ' show-bearing' : ''}`}
       role="img"
       aria-label={`${plan.name} 平面图`}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
-      onPointerCancel={() => (dragRef.current = null)}
+      onPointerCancel={(e) => {
+        dragRef.current = null;
+        touches.current.delete(e.pointerId);
+        if (touches.current.size < 2) pinch.current = null;
+      }}
       onDoubleClick={() => tool === 'build' && setChain([])}
       onContextMenu={(e) => {
         if (tool !== 'select') e.preventDefault();
@@ -526,15 +688,18 @@ export function PlanCanvas({onReady}: {onReady?: (api: {fit: () => void}) => voi
           <path d="M 2500 0 L 0 0 0 2500" className="fp-grid-major" />
         </pattern>
       </defs>
-      <rect x={-100000} y={-100000} width={200000} height={200000} fill="url(#fp-grid)" />
+      <rect x={-100000} y={-100000} width={200000} height={200000} fill={layers.grid ? 'url(#fp-grid)' : 'transparent'} />
       <RoomsLayer rooms={plan.rooms} selectedId={selId('room')} />
-      <g className="fp-furniture">
-        {plan.furniture.map((f) => (
-          <FurnitureItem key={f.id} f={f} selected={f.id === selId('furniture')} />
-        ))}
-      </g>
+      {layers.furniture && (
+        <g className="fp-furniture">
+          {plan.furniture.map((f) => (
+            <FurnitureItem key={f.id} f={f} selected={f.id === selId('furniture')} />
+          ))}
+        </g>
+      )}
       <WallsLayer walls={plan.walls} openings={plan.openings} demolished={plan.demolished} selectedId={selId('wall')} />
-      <RoomLabels rooms={plan.rooms} />
+      {layers.labels && <RoomLabels rooms={plan.rooms} />}
+      {layers.dims && <DimsLayer walls={plan.walls} />}
       <MeasuresLayer measures={plan.measures} selectedId={selId('measure')} />
 
       {/* 进行中的测量 / 砌墙 */}

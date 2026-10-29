@@ -116,4 +116,6 @@ export interface Plan {
   demolished: string[];
   measures: Measure[];
   source: PlanSource;
+  /** 用户改过的地面单价（元/㎡），没改的用默认价 */
+  prices?: Partial<Record<MaterialId, number>>;
 }

@@ -1,4 +1,4 @@
-import type {Material, MaterialId} from './types';
+import type {Material, MaterialId, Plan} from './types';
 
 export const MATERIALS: Record<MaterialId, Material> = {
   wood: {name: '橡木地板', price: 320, swatch: '#D8B88A'},
@@ -15,3 +15,6 @@ export const MATERIAL_IDS = Object.keys(MATERIALS) as MaterialId[];
 
 /** 损耗率，预算里统一加 5% */
 export const WASTE_RATE = 0.05;
+
+/** 地面单价：用户改过就用改过的 */
+export const priceOf = (plan: Plan, id: MaterialId) => plan.prices?.[id] ?? MATERIALS[id].price;

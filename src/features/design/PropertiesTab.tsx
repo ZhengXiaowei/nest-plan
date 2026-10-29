@@ -1,7 +1,7 @@
+import {lazy, Suspense} from 'react';
 import {Button} from '@astryxdesign/core/Button';
-import {HStack} from '@astryxdesign/core/Stack';
 import {Heading} from '@astryxdesign/core/Heading';
-import {MATERIALS, MATERIAL_IDS} from '../../model/materials';
+import {MATERIALS, MATERIAL_IDS, priceOf} from '../../model/materials';
 import {roomArea} from '../../model/geometry';
 import {usePlanStore} from '../../store/planStore';
 import {canDemolish, wallLength} from '../../model/walls';
@@ -9,7 +9,25 @@ import type {WallKind} from '../../model/types';
 
 const WALL_KIND_NAME: Record<WallKind, string> = {bearing: '承重墙', exterior: '外墙', partition: '非承重墙', low: '矮墙'};
 const mm = (v: number) => `${Math.round(v).toLocaleString('zh-CN')} mm`;
-import {IconRotate, IconTrash} from '../../lib/icons';
+import {IconTrash} from '../../lib/icons';
+
+// 编辑表单选中东西后才需要，单独拆包
+const FurnitureEditor = lazy(() => import('./Editors').then((m) => ({default: m.FurnitureEditor})));
+const RoomEditor = lazy(() => import('./Editors').then((m) => ({default: m.RoomEditor})));
+const loading = <div className="np-loading" style={{height: 120}}>加载中…</div>;
+
+const SHORTCUTS: [string, string][] = [
+  ['V / M / X / B', '选择 / 测量 / 拆墙 / 砌墙'],
+  ['R', '旋转 90°（Shift 反向）'],
+  ['方向键', '微调 10mm（Shift 100mm）'],
+  ['⌘/Ctrl D', '复制'],
+  ['Delete', '删除'],
+  ['⌘/Ctrl Z', '撤销（加 Shift 重做）'],
+  ['T', '切换平面 / 3D'],
+  ['F', '适应窗口'],
+  ['Shift F', '全屏'],
+  ['Esc', '取消选择'],
+];
 
 export function PropertiesTab() {
   const selection = usePlanStore((s) => s.selection);
@@ -18,22 +36,12 @@ export function PropertiesTab() {
   if (selection?.kind === 'furniture') {
     const f = plan.furniture.find((x) => x.id === selection.id);
     if (!f) return null;
-    const store = usePlanStore.getState();
     return (
       <>
         <Heading level={3}>{f.name}</Heading>
-        <dl className="np-kv">
-          <dt>尺寸</dt>
-          <dd>{f.w} × {f.d} mm</dd>
-          <dt>位置</dt>
-          <dd>x {Math.round(f.cx)} · y {Math.round(f.cy)}</dd>
-          <dt>朝向</dt>
-          <dd>{Math.round(f.rot)}°</dd>
-        </dl>
-        <HStack gap={2}>
-          <Button label="旋转 90°" icon={<IconRotate />} variant="secondary" size="sm" onClick={() => store.rotateFurniture(f.id, 90)} />
-          <Button label="删除" icon={<IconTrash />} variant="ghost" size="sm" onClick={() => store.removeSelected()} />
-        </HStack>
+        <Suspense fallback={loading}>
+          <FurnitureEditor f={f} />
+        </Suspense>
       </>
     );
   }
@@ -49,8 +57,13 @@ export function PropertiesTab() {
           <dt>面积</dt>
           <dd>{area.toFixed(2)} ㎡</dd>
           <dt>地面</dt>
-          <dd>{MATERIALS[room.material].name} · ¥{MATERIALS[room.material].price}/㎡</dd>
+          <dd>
+            {MATERIALS[room.material].name} · ¥{priceOf(plan, room.material)}/㎡
+          </dd>
         </dl>
+        <Suspense fallback={loading}>
+          <RoomEditor room={room} />
+        </Suspense>
         <div>
           <h3 className="np-panel-title">换地面材质</h3>
           <div className="np-swatches">
@@ -116,8 +129,23 @@ export function PropertiesTab() {
   }
 
   return (
-    <p className="np-hint">
-      点家具查看尺寸、旋转或删除；点房间换地面材质；点墙看能不能拆。上方工具条可以测量、拆墙、砌新墙，切到「漫游」用第一人称在屋里走。
-    </p>
+    <>
+      <p className="np-hint">
+        点家具改尺寸、颜色、位置；点房间换地面材质和单价；点墙看能不能拆。上方工具条可以测量、拆墙、砌新墙，切到「漫游」用第一人称在屋里走。
+      </p>
+      <div>
+        <h3 className="np-panel-title">快捷键</h3>
+        <dl className="np-kbd">
+          {SHORTCUTS.map(([k, v]) => (
+            <div key={k}>
+              <dt>
+                <kbd>{k}</kbd>
+              </dt>
+              <dd>{v}</dd>
+            </div>
+          ))}
+        </dl>
+      </div>
+    </>
   );
 }

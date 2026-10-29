@@ -1,5 +1,5 @@
 import type {Furniture, Plan, Room, Vec2} from './types';
-import {MATERIALS, WASTE_RATE} from './materials';
+import {priceOf, WASTE_RATE} from './materials';
 
 /** 多边形面积（mm²），鞋带公式 */
 export function polygonArea(poly: readonly Vec2[]): number {
@@ -47,7 +47,7 @@ export function floorBudget(plan: Plan): {lines: FloorBudgetLine[]; area: number
     .filter((r) => r.counted !== false)
     .map((r) => {
       const area = roomArea(r);
-      return {roomId: r.id, name: r.name, area, cost: area * MATERIALS[r.material].price * (1 + WASTE_RATE)};
+      return {roomId: r.id, name: r.name, area, cost: area * priceOf(plan, r.material) * (1 + WASTE_RATE)};
     });
   return {
     lines,

@@ -4,6 +4,7 @@ import {createSamplePlan} from '../model/samplePlan';
 import {normAngle} from '../model/geometry';
 import {canDemolish, pushOut, wallRects} from '../model/walls';
 import {idbGet, idbSet} from '../lib/idb';
+import {uid} from '../lib/id';
 
 export type Selection = {kind: 'furniture' | 'room' | 'wall' | 'opening' | 'measure'; id: string} | null;
 
@@ -41,7 +42,18 @@ interface PlanState {
   updateFurniture: (id: string, change: Partial<Furniture>) => void;
   addFurniture: (f: Furniture) => void;
   removeSelected: () => void;
+  /** 复制选中的家具，错开一点放 */
+  duplicateSelected: () => void;
+  /** 方向键微调选中的家具 */
+  nudgeSelected: (dx: number, dy: number) => void;
+  /** 置于顶层 / 底层（决定平面图上的遮挡顺序） */
+  reorderFurniture: (id: string, to: 'top' | 'bottom') => void;
+  clearFurniture: () => void;
   setRoomMaterial: (roomId: string, material: MaterialId) => void;
+  renameRoom: (roomId: string, name: string) => void;
+  setPrice: (material: MaterialId, price: number | null) => void;
+  /** 整个换掉方案（导入、重置），可撤销 */
+  replacePlan: (plan: Plan) => void;
 
   /** 拆除 / 恢复非承重墙；新砌的墙直接删掉 */
   toggleDemolish: (wallId: string) => DemolishResult;
@@ -107,6 +119,44 @@ export const usePlanStore = create<PlanState>()((set, get) => ({
       if (!w || !canDemolish(w) || get().plan.demolished.includes(w.id)) return;
       get().toggleDemolish(w.id);
     } else return;
+    set({selection: null});
+  },
+  duplicateSelected: () => {
+    const sel = get().selection;
+    const f = sel?.kind === 'furniture' && get().plan.furniture.find((x) => x.id === sel.id);
+    if (!f) return;
+    const copy = {...f, id: uid('f'), cx: f.cx + 300, cy: f.cy + 300};
+    get().commit((p) => ({...p, furniture: [...p.furniture, copy]}));
+    set({selection: {kind: 'furniture', id: copy.id}});
+  },
+  nudgeSelected: (dx, dy) => {
+    const sel = get().selection;
+    if (sel?.kind !== 'furniture') return;
+    get().commit((p) => mapFurniture(p, sel.id, (f) => ({...f, cx: f.cx + dx, cy: f.cy + dy})));
+  },
+  reorderFurniture: (id, to) =>
+    get().commit((p) => {
+      const f = p.furniture.find((x) => x.id === id);
+      if (!f) return p;
+      const rest = p.furniture.filter((x) => x.id !== id);
+      return {...p, furniture: to === 'top' ? [...rest, f] : [f, ...rest]};
+    }),
+  clearFurniture: () => {
+    if (!get().plan.furniture.length) return;
+    get().commit((p) => ({...p, furniture: []}));
+    set({selection: null});
+  },
+  renameRoom: (roomId, name) =>
+    get().commit((p) => ({...p, rooms: p.rooms.map((r) => (r.id === roomId ? {...r, name} : r))})),
+  setPrice: (material, price) =>
+    get().commit((p) => {
+      const prices = {...p.prices};
+      if (price === null) delete prices[material];
+      else prices[material] = price;
+      return {...p, prices};
+    }),
+  replacePlan: (plan) => {
+    get().commit(() => normalizePlan(plan));
     set({selection: null});
   },
   setRoomMaterial: (roomId, material) =>

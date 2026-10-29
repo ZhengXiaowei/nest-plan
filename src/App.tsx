@@ -1,11 +1,13 @@
 import {lazy, Suspense, useEffect, useState} from 'react';
-import {useDesignUi, type DesignTool} from './features/design/designUi';
+import {planView, useDesignUi, type DesignTool} from './features/design/designUi';
 import {Toaster} from './lib/toast';
 import {SegmentedControl, SegmentedControlItem} from '@astryxdesign/core/SegmentedControl';
 import {Button} from '@astryxdesign/core/Button';
 import {IconButton} from '@astryxdesign/core/IconButton';
 import {navigate, useRoute, type Route} from './lib/router';
-import {BrandMark, IconRedo, IconSpark, IconUndo} from './lib/icons';
+import {BrandMark, IconFile, IconRedo, IconSpark, IconUndo} from './lib/icons';
+import {LazyMenu} from './features/design/LazyMenu';
+import {toggleFullscreen} from './lib/fullscreen';
 import {usePlanStore} from './store/planStore';
 import {useAiSettings, isAiConfigured} from './features/ai/settings';
 import {DesignPage} from './features/design/DesignPage';
@@ -73,6 +75,7 @@ function TopBar({route}: {route: Route}) {
           <>
             <IconButton label="撤销" tooltip="撤销 ⌘Z" icon={<IconUndo />} variant="ghost" size="sm" isDisabled={!canUndo} onClick={() => usePlanStore.getState().undo()} />
             <IconButton label="重做" tooltip="重做 ⇧⌘Z" icon={<IconRedo />} variant="ghost" size="sm" isDisabled={!canRedo} onClick={() => usePlanStore.getState().redo()} />
+            <LazyMenu kind="plan" label="方案" icon={<IconFile />} />
           </>
         )}
         <Button label={aiReady ? 'AI 已连接' : '连接 AI'} icon={<IconSpark />} variant={aiReady ? 'secondary' : 'primary'} size="sm" onClick={() => openDialog(true)} />
@@ -83,6 +86,7 @@ function TopBar({route}: {route: Route}) {
 
 /** 设计页的快捷键；还原页有自己的一套 */
 const TOOL_KEYS: Record<string, DesignTool> = {v: 'select', m: 'measure', x: 'demolish', b: 'build'};
+const ARROWS: Record<string, [number, number]> = {ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1]};
 
 function useDesignShortcuts(enabled: boolean) {
   useEffect(() => {
@@ -91,20 +95,38 @@ function useDesignShortcuts(enabled: boolean) {
       const t = e.target as HTMLElement | null;
       if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
       const store = usePlanStore.getState();
+      const ui = useDesignUi.getState();
       const mod = e.metaKey || e.ctrlKey;
-      if (mod && e.key.toLowerCase() === 'z') {
+      const key = e.key.toLowerCase();
+      const furniture = store.selection?.kind === 'furniture' ? store.selection.id : null;
+      if (mod && key === 'z') {
         e.preventDefault();
         if (e.shiftKey) store.redo();
         else store.undo();
-      } else if (mod && e.key.toLowerCase() === 'y') {
+      } else if (mod && key === 'y') {
         e.preventDefault();
         store.redo();
-      } else if (!mod && !e.altKey && useDesignUi.getState().view === '2d' && TOOL_KEYS[e.key.toLowerCase()]) {
-        useDesignUi.getState().setTool(TOOL_KEYS[e.key.toLowerCase()]!);
+      } else if (mod && key === 'd') {
+        e.preventDefault();
+        if (furniture) store.duplicateSelected();
+      } else if (mod || e.altKey) {
+        return;
+      } else if (ARROWS[e.key] && furniture && ui.view === '2d') {
+        e.preventDefault();
+        const [dx, dy] = ARROWS[e.key]!;
+        const step = e.shiftKey ? 100 : 10;
+        store.nudgeSelected(dx * step, dy * step);
+      } else if (ui.view === '2d' && !e.shiftKey && TOOL_KEYS[key]) {
+        ui.setTool(TOOL_KEYS[key]!);
       } else if (e.key === 'Delete' || e.key === 'Backspace') {
         store.removeSelected();
-      } else if (e.key === 'r' && store.selection?.kind === 'furniture') {
-        store.rotateFurniture(store.selection.id, e.shiftKey ? -90 : 90);
+      } else if (key === 'r' && furniture) {
+        store.rotateFurniture(furniture, e.shiftKey ? -90 : 90);
+      } else if (key === 't') {
+        ui.setView(ui.view === '2d' ? '3d' : '2d');
+      } else if (key === 'f') {
+        if (e.shiftKey) void toggleFullscreen();
+        else if (ui.view === '2d') planView.fit();
       } else if (e.key === 'Escape') {
         store.select(null);
       }
