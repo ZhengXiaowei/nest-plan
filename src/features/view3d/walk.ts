@@ -1,5 +1,5 @@
 import type {Opening, Plan, Vec2} from '../../model/types';
-import {polygonArea, polygonCentroid} from '../../model/geometry';
+import {pointInPolygon, polygonArea, polygonCentroid} from '../../model/geometry';
 import {activeWalls, distToSegment, liveOpenings, wallPieces} from '../../model/walls';
 import {FURNITURE_ELEVATION} from '../../model/catalog';
 
@@ -70,15 +70,8 @@ export function tryMove(colliders: readonly Collider[], from: Vec2, dx: number, 
   return [x, z];
 }
 
-export function pointInPolygon(p: Vec2, poly: readonly Vec2[]): boolean {
-  let inside = false;
-  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-    const [xi, yi] = poly[i]!;
-    const [xj, yj] = poly[j]!;
-    if (yi > p[1] !== yj > p[1] && p[0] < ((xj - xi) * (p[1] - yi)) / (yj - yi) + xi) inside = !inside;
-  }
-  return inside;
-}
+// 实现搬到了 model/geometry（AI 布置也要用），这里转出，原来的调用方不用改
+export {pointInPolygon};
 
 /**
  * 漫游起点：从入户门往屋里走一步，面朝屋内；没有入户门就站在最大房间中间。

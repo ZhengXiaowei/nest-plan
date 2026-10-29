@@ -10,7 +10,7 @@ vi.mock('./client', async (orig) => ({
   complete: vi.fn(async () => replies.shift() ?? '{"reply":"好","actions":[]}'),
 }));
 
-const settings: AiSettings = {protocol: 'openai', baseUrl: 'http://x', apiKey: 'k', model: 'm', remember: false};
+const settings: AiSettings = {protocol: 'openai', baseUrl: 'http://x', apiKey: 'k', model: 'm', remember: false, thinking: false};
 
 describe('AI 改方案', () => {
   const plan = createSamplePlan();

@@ -15,11 +15,16 @@ export interface AiSettings {
   model: string;
   /** true 存 localStorage（下次打开还在），false 只存 sessionStorage（关掉标签页就清除） */
   remember: boolean;
+  /**
+   * 深度思考。只对能用请求参数关掉思考的接口生效（见 client.ts 的 canToggleThinking），默认关：
+   * 户型识别靠看图出坐标，思考帮助不大，还会把输出额度用完。
+   */
+  thinking: boolean;
 }
 
 const KEY = 'nestplan:ai-settings';
 
-const EMPTY: AiSettings = {protocol: 'openai', baseUrl: '', apiKey: '', model: '', remember: false};
+const EMPTY: AiSettings = {protocol: 'openai', baseUrl: '', apiKey: '', model: '', remember: false, thinking: false};
 
 function load(): AiSettings {
   try {

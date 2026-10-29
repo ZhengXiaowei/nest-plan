@@ -186,7 +186,116 @@ export function draftFromRecognized(r: RecognizedPlan): Draft {
     dimensions: r.dimensions.map((d) => ({a: [...d.a] as P, b: [...d.b] as P, mm: d.mm})),
   };
   const median = medianWallThickness(draft) ?? 6;
-  return attachOpenings(draft, median * 1.5);
+  // 先规整墙，门窗再贴到规整后的墙上
+  return attachOpenings({...draft, walls: tidyWalls(draft.walls, median)}, median * 1.5);
+}
+
+/* ---------- 规整 AI 识别的墙 ---------- */
+
+/** 偏离水平 / 竖直不到这个角度的墙拉正 */
+const STRAIGHTEN_DEG = 5;
+
+type Axis = 'h' | 'v';
+
+/**
+ * 墙的走向：接近水平 h、接近竖直 v、斜墙 null。
+ * 角度偏差不到 5°，或两端错开不到半个墙厚，都算横 / 竖墙：中等长度的墙两端差几个像素，角度就超过 5° 了。
+ * 很短的墙（不到 2 倍墙厚）角度不可靠，按长的那个方向算。
+ */
+function axisOf(w: DraftWall, thickness: number): Axis | null {
+  const dx = Math.abs(w.b[0] - w.a[0]);
+  const dy = Math.abs(w.b[1] - w.a[1]);
+  if (Math.hypot(dx, dy) <= thickness * 2) return dx >= dy ? 'h' : 'v';
+  const deg = (Math.atan2(dy, dx) * 180) / Math.PI;
+  if (dx >= dy && (deg <= STRAIGHTEN_DEG || dy <= thickness / 2)) return 'h';
+  if (dy > dx && (deg >= 90 - STRAIGHTEN_DEG || dx <= thickness / 2)) return 'v';
+  return null;
+}
+
+/** 横墙所在的 y、竖墙所在的 x */
+const lineOf = (w: DraftWall, axis: Axis) => (axis === 'h' ? w.a[1] : w.a[0]);
+
+/** 墙沿自身方向的范围 */
+function spanOf(w: DraftWall, axis: Axis): [number, number] {
+  const k = axis === 'h' ? 0 : 1;
+  return [Math.min(w.a[k], w.b[k]), Math.max(w.a[k], w.b[k])];
+}
+
+const onLine = (w: DraftWall, axis: Axis, v: number): DraftWall =>
+  axis === 'h' ? {...w, a: [w.a[0], v], b: [w.b[0], v]} : {...w, a: [v, w.a[1]], b: [v, w.b[1]]};
+
+/**
+ * 规整 AI 识别的墙：户型图的墙几乎都横平竖直，AI 给的坐标却常常歪一点、墙角差一点接不上。
+ * 1. 接近水平 / 竖直的墙拉正；
+ * 2. 同一条线上前后相接、错开不到 1/4 墙厚的墙，对齐到同一条线（按长度加权）；
+ * 3. 端点离垂直方向的另一面墙不到 1.5 倍墙厚时，伸缩到那面墙的中心线上，墙角和丁字接头就接上了。
+ * 斜墙原样保留。thickness 是典型墙厚（像素）。
+ */
+export function tidyWalls(walls: DraftWall[], thickness: number): DraftWall[] {
+  const join = thickness * 1.5;
+  const align = thickness / 4;
+  const axes = walls.map((w) => axisOf(w, thickness));
+
+  const out = walls.map((w, i) => {
+    const axis = axes[i];
+    if (!axis) return w;
+    const k = axis === 'h' ? 1 : 0;
+    return onLine(w, axis, (w.a[k] + w.b[k]) / 2);
+  });
+
+  for (const axis of ['h', 'v'] as const) {
+    const idx = out.flatMap((_, i) => (axes[i] === axis ? [i] : []));
+    const parent = new Map(idx.map((i) => [i, i]));
+    const root = (i: number): number => {
+      while (parent.get(i) !== i) i = parent.get(i)!;
+      return i;
+    };
+    for (const i of idx) {
+      for (const j of idx) {
+        if (j <= i) continue;
+        const [a0, a1] = spanOf(out[i]!, axis);
+        const [b0, b1] = spanOf(out[j]!, axis);
+        const gap = Math.max(a0, b0) - Math.min(a1, b1);
+        if (gap <= join && Math.abs(lineOf(out[i]!, axis) - lineOf(out[j]!, axis)) <= align) parent.set(root(j), root(i));
+      }
+    }
+    const groups = new Map<number, number[]>();
+    for (const i of idx) groups.set(root(i), [...(groups.get(root(i)) ?? []), i]);
+    for (const group of groups.values()) {
+      if (group.length < 2) continue;
+      const len = (i: number) => Math.max(1, dist(out[i]!.a, out[i]!.b));
+      const total = group.reduce((s, i) => s + len(i), 0);
+      const v = group.reduce((s, i) => s + lineOf(out[i]!, axis) * len(i), 0) / total;
+      for (const i of group) out[i] = onLine(out[i]!, axis, v);
+    }
+  }
+
+  return out.map((w, i) => {
+    const axis = axes[i];
+    if (!axis) return w;
+    const cross: Axis = axis === 'h' ? 'v' : 'h';
+    // 端点沿墙方向的那个坐标：横墙是 x，竖墙是 y
+    const k = axis === 'h' ? 0 : 1;
+    const end = (p: P, other: P): P => {
+      let best: number | null = null;
+      let bestD = join;
+      out.forEach((o, j) => {
+        if (j === i || axes[j] !== cross) return;
+        const [s0, s1] = spanOf(o, cross);
+        if (p[1 - k]! < s0 - join || p[1 - k]! > s1 + join) return;
+        const line = lineOf(o, cross);
+        const d = Math.abs(line - p[k]!);
+        // 只接离这一端更近的墙，免得很短的墙两头接到同一面墙上、缩成一个点
+        if (d <= bestD && d < Math.abs(line - other[k]!)) {
+          bestD = d;
+          best = line;
+        }
+      });
+      if (best === null) return p;
+      return axis === 'h' ? [best, p[1]] : [p[0], best];
+    };
+    return {...w, a: end(w.a, w.b), b: end(w.b, w.a)};
+  });
 }
 
 export function medianWallThickness(draft: Draft): number | null {

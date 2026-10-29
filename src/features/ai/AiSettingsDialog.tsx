@@ -7,7 +7,7 @@ import {Button} from '@astryxdesign/core/Button';
 import {Banner} from '@astryxdesign/core/Banner';
 import {VStack, HStack} from '@astryxdesign/core/Stack';
 import {useAiSettings, type AiProtocol, type AiSettings} from './settings';
-import {complete} from './client';
+import {canToggleThinking, complete} from './client';
 
 const PLACEHOLDER: Record<AiProtocol, string> = {
   openai: 'https://api.openai.com/v1（或任意 OpenAI 兼容地址）',
@@ -27,11 +27,13 @@ export default function AiSettingsDialog() {
   }, [dialogOpen, settings]);
 
   const set = <K extends keyof AiSettings>(k: K, v: AiSettings[K]) => setDraft((d) => ({...d, [k]: v}));
+  const deepseek = canToggleThinking(draft);
 
   const runTest = async () => {
     setTest({state: 'running'});
     try {
-      const reply = await complete(draft, {text: '只回复两个字：可以', maxTokens: 16});
+      // 只给 16 个 token，开着思考的模型来不及回复，所以测试时固定不开思考
+      const reply = await complete(draft, {text: '只回复两个字：可以', maxTokens: 16, thinking: false});
       setTest({state: 'ok', message: `连接成功，模型回复：${reply.slice(0, 40)}`});
     } catch (e) {
       setTest({state: 'error', message: e instanceof Error ? e.message : String(e)});
@@ -48,7 +50,20 @@ export default function AiSettingsDialog() {
         </SegmentedControl>
         <TextInput label="接口地址" value={draft.baseUrl} placeholder={PLACEHOLDER[draft.protocol]} onChange={(v) => set('baseUrl', v.trim())} />
         <TextInput label="API 密钥" type="password" value={draft.apiKey} autoComplete="off" onChange={(v) => set('apiKey', v.trim())} />
-        <TextInput label="模型名" description="需要支持图片输入" value={draft.model} onChange={(v) => set('model', v.trim())} />
+        <TextInput
+          label="模型名"
+          description={deepseek ? '需要支持图片输入：DeepSeek 用 deepseek-flash，deepseek-v4-pro 看不了图' : '需要支持图片输入'}
+          value={draft.model}
+          onChange={(v) => set('model', v.trim())}
+        />
+        {deepseek && (
+          <Switch
+            label="深度思考"
+            description="DeepSeek 默认会深度思考。户型识别建议关掉：更快、更省，也不会把输出额度用完"
+            value={draft.thinking}
+            onChange={(v) => set('thinking', v)}
+          />
+        )}
         <Switch label="在这台设备上记住" description="关闭时，关掉页面就清除密钥" value={draft.remember} onChange={(v) => set('remember', v)} />
         <Banner
           status="info"
