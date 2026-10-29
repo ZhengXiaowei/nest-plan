@@ -30,5 +30,5 @@
 - 新增 `src/features/ai/layout.ts`（提示词、解析、修正一轮）及测试；复用现有 `complete()`，不改 AI 请求协议。
 - 新增 `src/features/design/AutoLayout.tsx`（按需加载），`PropertiesTab.tsx` 选中房间时挂载它。
 - `src/model/geometry.ts` 收进 `pointInPolygon`（原在 `view3d/walk.ts`，那里改为从 geometry 转出，调用方不变）。
-- 首屏体积不应变化：AI 布置的代码都按需加载。
+- 首屏体积基本不变：AI 布置的代码都按需加载（实测首屏 +0.2 KB，来自首屏 geometry 里的 pointInPolygon 和按需加载入口）。
 - 每布置一次调用 1～2 次用户自己配置的 AI 接口。

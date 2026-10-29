@@ -7,7 +7,7 @@
 - **是什么**：纯前端的户型装修设计工具。上传户型图 → 还原成可编辑户型 → 2D 布置 + 3D 预览 / 漫游 → 「改造回放」动画（毛坯一步步变成完工，可导出视频）。
 - **给谁用**：想自己琢磨装修布局的普通住户；界面、文案全中文。
 - **来源**：受开源项目 [wy51ai/floorplan-3d](https://github.com/wy51ai/floorplan-3d)（MIT，单个 index.html）启发后重新设计、重写。示例户型、家具库尺寸配色、地面单价、3D 家具模型和地板贴图做法移植自原项目。
-- **阶段**：v0.1.0，未发版、无线上部署（CI 只构建 + 测试 + 报体积）。路线图见 `docs/plan.md`：阶段 0 骨架、1 还原、3 回放已完成；2 设计大部分完成；4 CAD 暂缓；5 AI 助手智能体未开始。
+- **阶段**：v0.1.0，未发版、无线上部署（CI 只构建 + 测试 + 报体积）。路线图见 `docs/plan.md`：阶段 0 骨架、1 还原、3 回放已完成；2 设计大部分完成；4 CAD 暂缓；5 AI 助手进行中（单个房间一键布置已做，整屋设计和改方案的智能体未做）。
 - **仓库**：`git@github.com:ZhengXiaowei/nest-plan.git`，主分支 `main`。
 
 ## 铁律
@@ -19,6 +19,8 @@
 5. **保留原项目 MIT 声明**：移植自 floorplan-3d 的代码/数据要在注释里注明来源，`THIRD_PARTY_NOTICES.md` 不能删。
 6. **承重墙、外墙不能拆**（`model/walls.ts` 的 `canDemolish`），只有非承重墙 `partition` / 矮墙 `low` 能拆；新砌的墙（`added: true`）"拆"就是直接删掉。
 7. 文案、注释、提交信息都用中文、说人话；提交信息格式参考历史（一句话说清做了什么）。
+8. **开发流程**（2026-10-29 起，用户确认）：先给用户「范围 + 改动点 + 不做什么」等裁定 → 新功能用 openspec 建 change（`openspec/changes/<name>/`，`openspec validate` 过了再写代码；小修可以跳过）→ 在 `feat/…` / `fix/…` 分支开发，bug 先写复现测试 → 用户验收后才合回 main。Linear 还没授权，先不登记。
+9. **AI 只出主意，几何由程序算**：户型识别要 0~1000 相对坐标再换算；AI 布置只给「靠哪面墙、怎么对齐」，坐标、避让、检查都在 `model/autolayout.ts`。不要再让模型直接给像素或毫米坐标。
 
 ## 技术栈
 
@@ -36,18 +38,20 @@ src/
   main.tsx / App.tsx             挂载、顶栏、设计页快捷键
   lib/                           router（hash 路由，三页 trace/design/replay，默认 design）、idb、icons、toast、icuLite 等
   model/                         纯数据与几何，无 React：types、samplePlan、catalog（家具库）、materials、
-                                 geometry、walls（拆墙/贴墙/吸附）、snap、dims（外圈尺寸）、sun（太阳位置）、sunlight（室内日照光线追踪）
+                                 geometry（含 pointInPolygon）、walls（拆墙/贴墙/吸附）、snap、dims（外圈尺寸）、sun（太阳位置）、
+                                 sunlight（室内日照光线追踪）、autolayout（AI 布置：房间墙面、摆放换算、布局检查、写回方案）
   store/planStore.ts             方案状态 + 撤销栈（checkpoint / patch / commit 三件套）+ IndexedDB 防抖自动保存
   features/
     plan2d/                      SVG 平面图画布（按图层拆分 + memo；缩放平移直接改 viewBox）
     view3d/                      3D 视图、家具模型（models.ts 最大，1400+ 行）、第一人称漫游 walk.ts
-    design/                      设计页：家具库、属性、房间预算、AI 助手、菜单、方案导入导出 planFiles.ts
-    trace/                       户型还原：草稿（像素坐标）、描图画布、标定、traceStore
-    ai/                          AI 设置、最小客户端（OpenAI 兼容 / Anthropic）、户型识别 prompt
+    design/                      设计页：家具库、属性、房间预算、AI 助手、AI 布置面板 AutoLayout.tsx、菜单、方案导入导出 planFiles.ts
+    trace/                       户型还原：草稿（像素坐标）、描图画布、标定、traceStore、识别结果规整 tidyWalls
+    ai/                          AI 设置（含深度思考开关）、最小客户端（OpenAI 兼容 / Anthropic）、户型识别 recognize.ts、AI 布置 layout.ts
     replay/                      改造回放：timeline（纯函数）、route（Dijkstra 漫游路线）、replayScene、导出视频
     sun/                         日照面板、平面光斑叠加、Web Worker 计算
   theme/                         blueprint.ts 源文件 + generated/ 生成产物（别手改 generated）
-docs/plan.md                     路线图、回放设计、性能指标与瘦身做法
+docs/plan.md                     路线图、回放和 AI 布置的做法、性能指标与瘦身做法
+openspec/                        openspec 规格（init --tools none）；changes/ 是进行中的变更，archive/ 是归档
 ```
 
 ## 关键数据流
@@ -57,13 +61,15 @@ docs/plan.md                     路线图、回放设计、性能指标与瘦�
 - **还原流程**：图片 → （可选）AI 识别返回像素坐标 JSON → 草稿 `Draft`（像素）→ 校对（置信度 < 0.6 高亮）→ 标定（两点 + 实长，或尺寸标注中位数自动估）→ 换算毫米生成 `Plan`。
 - **日照**：`sunStore` 按墙/门窗/房间/位置/日期算 key，变了才防抖 120 ms 丢给 `sun.worker.ts`；家具挪动不重算。网格 150 mm、每 10 分钟一条光线。
 - **回放**：时间线是方案的纯函数，播放和逐帧导出都按 t 取状态，不用 GSAP；场景一次搭好，每帧只改可见性/高度/颜色/位置，不走 React。
+- **AI 布置**：`roomInfo`（墙面编号、方位、门窗和开口、禁放区）→ 提示词让 AI 出 JSON 清单 → `placeItems`（换算坐标，沿墙滑开避让）→ `checkLayout`（压着、出界、挡门、挡窗、留空）→ 有问题交回 AI 修正一次 → `withRoomFurniture` 一次 `commit` 写回。家具局部 -y 是靠背 / 床头，上右下左墙对应 0 / 90 / 180 / 270°。
 
 ## 命令
 
 ```bash
 npm install
 npm run dev        # 本地开发
-npm test           # vitest，当前 9 个文件 120 个用例
+npm test           # vitest，当前 13 个文件 193 个用例
+openspec validate <change>   # 校验 openspec 变更；openspec status --change <change> 看进度
 npm run typecheck  # 只做类型检查
 npm run build      # tsc + vite build
 npm run budget     # 构建后跑：报告首屏 JS / CSS gzip 体积
@@ -84,18 +90,23 @@ CI（`.github/workflows/ci.yml`）：push main / PR → `npm ci` → test → bu
 - **AI 识别的坐标不能要像素**（2026-10-29，用户反馈识别结果整体缩小、偏左上）：接口会先缩放图片再给模型，DeepSeek 缩到约 1300×1300 的像素量，2048×1935 的图被缩到 0.653 倍，模型给的就是这张缩小图上的坐标。现在提示词要 0~1000 相对坐标，`toImagePixels` 按图片宽高分别换算。识别出的墙再经 `tidyWalls` 规整（拉正、对齐、墙角接上），墙角按「中心线相接」约定，3D 由 `withCorners` 补墙角方块。
 - **从截图反推坐标变换要先定死图片原点**：第一次分析时把图片左上角当自由参数拟合，凑出了「0~1000 相对坐标」的错误结论；拿到原图尺寸、用真实原点算才发现是缩放。用户的原图在工作区 `exports/`（不是我建的，别动、别提交）。
 - **示例户型的墙是按矩形转的中心线**，墙角处两段中心线差半个墙厚，不在端点相接；拿它当规整算法的标准答案时只能比「是否拉正、垂直方向位置」，不能比端点。
+- **房间轮廓的边不一定都有墙**：示例户型主卧右墙 800~2600 是通往飘窗的开口，没有墙也没有门窗。`roomInfo` 用墙和门窗覆盖墙面，剩下的段当开口（通飘窗按窗台 450 的窗，通别的房间留通道）；墙和轮廓大半对不上（识别出来的户型）时当作四面都有墙，免得满屏都是开口。
+- **门扫过的范围会伸到相邻的墙前**：主卧左墙的门开向室内，门扇正方形压住下墙靠左的一段。靠墙摆放时要把所有禁放区投影到这面墙上避让，不能只看本面墙上的门。
+- **「客餐厅」里没有连着的「客厅」**，房间类型判断要单独列这个词。
 - **手上没有真实的 DeepSeek 密钥**：请求参数只能靠单测和本地假接口验证，真实效果要用户用自己的密钥验收。不要拿假密钥去请求真实的第三方接口。
 - **IndexedDB 在隐私模式可能不可用**，持久化失败要静默降级，不能挡住启动。
 - **切出 2D 视图会把工具重置为「选择」**（`designUi.setView`），避免回来还停在拆墙模式。
-- **首屏体积**：react-dom ≈ 60 KB 最大，其次 Astryx 文案表和主题 token。161 → 142 KB 靠瘦身插件；补齐原版功能后 149 KB；加日照后 150.6 KB（2026-10-29 本地实测）。
+- **首屏体积**：react-dom ≈ 60 KB 最大，其次 Astryx 文案表和主题 token。161 → 142 KB 靠瘦身插件；补齐原版功能后 149 KB；加日照后 150.6 KB；加 AI 布置入口后 150.8 KB（布置本身按需加载，约 8.5 KB gzip）（2026-10-29 本地实测）。
 
 ## 当前状态与待办（2026-10-29）
 
 - `main` 最新：`7839348` 真实日照（城市 / 朝向 / 日期模拟太阳，平面光斑与日照时长，3D 真实太阳光）。
-- 进行中：`fix/ai-empty-reply` 分支，① AI 识别空回复时说清原因 ② DeepSeek 深度思考开关 ③ 识别坐标改用 0~1000 相对坐标 + 墙体规整。等用户用自己的 DeepSeek 密钥验收后再合回 main。
+- 进行中，都等用户用自己的 DeepSeek 密钥验收后再合回 main：
+  - `fix/ai-empty-reply`：① AI 识别空回复时说清原因 ② DeepSeek 深度思考开关 ③ 识别坐标改用 0~1000 相对坐标 + 墙体规整。
+  - `feat/ai-auto-layout`（从上一个分支切出）：AI 一键布置房间，openspec change `ai-auto-layout`，任务除 6.4 用户验收外都已完成。验收后 `openspec archive ai-auto-layout`。
+- AI 布置的后续（未立项）：整屋一键设计；厨卫；「挨着 / 正前方」引用房间里保留的家具；拆改建议、配色；工具调用式智能体。
 - 识别质量的后续方向（未立项）：整体对齐工具（拖动缩放整份识别结果贴合原图）；传统图像算法从像素里找墙，AI 只认房间名。
 - 本地开发服务通常是用户自己在 5173 端口开的（就在本目录）；我验证时用 `.claude/launch.json` 起的服务会自动换到 5174。
 - 已有但没做完：`designUi.PanelTab` 里留了 `'check'`（通道宽度检查），界面上还没有这个页签。
-- 路线图下一步（`docs/plan.md`）：PDF 户型图导入；AI 助手从单轮问答升级为能直接改方案的智能体（摆家具、查动线、出预算）；之后 DXF（CAD）导入。
+- 路线图下一步（`docs/plan.md`）：PDF 户型图导入；整屋 AI 设计和能直接改方案的 AI 助手；之后 DXF（CAD）导入。
 - 性能待办：LCP / INP 还没实测；3D 家具改 InstancedMesh、模型 KTX2 + meshopt；还原页图片预处理移到 Worker；按用到的组件裁剪 Astryx 文案表（约 26 KB 未压缩）。
-- 文档小偏差：`docs/plan.md` 里首屏 JS 写的 149 KB，日照功能合入后实际 150.6 KB。
