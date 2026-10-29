@@ -18,6 +18,8 @@ export interface AiRequest {
   images?: AiImage[];
   maxTokens?: number;
   signal?: AbortSignal;
+  /** 不按设置里的深度思考开关来：测试连接固定传 false，只看接口通不通 */
+  thinking?: boolean;
 }
 
 export class AiError extends Error {
@@ -27,6 +29,24 @@ export class AiError extends Error {
 }
 
 const trimSlash = (s: string) => s.replace(/\/+$/, '');
+
+/**
+ * 能不能用请求参数关掉深度思考。目前只认 DeepSeek 官方接口：默认开着思考，
+ * OpenAI 和 Anthropic 两种协议都用 thinking: {type: 'disabled'} 关掉。
+ * 别家的参数各不一样，有的模型传「关闭」反而报错，认不出的接口一律不加参数。
+ */
+export function canToggleThinking(s: Pick<AiSettings, 'baseUrl'>): boolean {
+  try {
+    return new URL(s.baseUrl).hostname === 'api.deepseek.com';
+  } catch {
+    return false;
+  }
+}
+
+/** 开关打开时不带参数，用接口默认的思考 */
+function thinkingParam(s: AiSettings, req: AiRequest) {
+  return canToggleThinking(s) && !(req.thinking ?? s.thinking) ? {thinking: {type: 'disabled'}} : {};
+}
 
 function splitDataUrl(dataUrl: string): {mediaType: string; data: string} {
   const m = /^data:([^;]+);base64,(.*)$/.exec(dataUrl);
@@ -50,6 +70,7 @@ async function completeOpenAI(s: AiSettings, req: AiRequest): Promise<string> {
     body: JSON.stringify({
       model: s.model,
       max_tokens: req.maxTokens ?? 4096,
+      ...thinkingParam(s, req),
       messages: [...(req.system ? [{role: 'system', content: req.system}] : []), {role: 'user', content}],
     }),
   });
@@ -60,7 +81,7 @@ async function completeOpenAI(s: AiSettings, req: AiRequest): Promise<string> {
   const choice = json.choices?.[0];
   const text = partsText(choice?.message?.content);
   if (!text.trim()) {
-    throw emptyReply(choice?.finish_reason === 'length', Boolean(choice?.message?.reasoning_content || choice?.message?.reasoning));
+    throw emptyReply(choice?.finish_reason === 'length', Boolean(choice?.message?.reasoning_content || choice?.message?.reasoning), s);
   }
   return text;
 }
@@ -76,11 +97,11 @@ function partsText(content: unknown): string {
  * 模型没给出正式回复。最常见的是带深度思考的模型：思考把输出上限用完了，正式回复是空的。
  * 不说清楚的话，后面解析 JSON 只会报一句看不懂的英文。
  */
-function emptyReply(outOfTokens: boolean, thought: boolean): AiError {
-  if (outOfTokens) {
-    return new AiError('模型用完了输出上限也没给出回复，多半是深度思考把额度占满了。换一个不带深度思考的模型，或者在接口那边关掉深度思考再试。');
-  }
-  if (thought) return new AiError('模型只返回了思考过程，没有给出正式回复。换一个不带深度思考的模型再试。');
+function emptyReply(outOfTokens: boolean, thought: boolean, s?: AiSettings): AiError {
+  // 能在栖图里关思考的接口，直接告诉用户去哪关
+  const fix = s && canToggleThinking(s) ? '在「连接 AI」里关掉「深度思考」再试。' : '换一个不带深度思考的模型再试。';
+  if (outOfTokens) return new AiError(`模型用完了输出上限也没给出回复，多半是深度思考把额度占满了。${fix}`);
+  if (thought) return new AiError(`模型只返回了思考过程，没有给出正式回复。${fix}`);
   return new AiError('模型返回了空回复。检查模型名是否正确，或者换一个模型再试。');
 }
 
@@ -105,6 +126,7 @@ async function completeAnthropic(s: AiSettings, req: AiRequest): Promise<string>
     body: JSON.stringify({
       model: s.model,
       max_tokens: req.maxTokens ?? 4096,
+      ...thinkingParam(s, req),
       ...(req.system ? {system: req.system} : {}),
       messages: [{role: 'user', content}],
     }),
@@ -113,7 +135,7 @@ async function completeAnthropic(s: AiSettings, req: AiRequest): Promise<string>
   const json = (await res.json()) as {content?: {type: string; text?: string}[]; stop_reason?: string};
   const blocks = json.content ?? [];
   const text = blocks.filter((c) => c.type === 'text').map((c) => c.text ?? '').join('');
-  if (!text.trim()) throw emptyReply(json.stop_reason === 'max_tokens', blocks.some((c) => c.type === 'thinking'));
+  if (!text.trim()) throw emptyReply(json.stop_reason === 'max_tokens', blocks.some((c) => c.type === 'thinking'), s);
   return text;
 }
 
