@@ -1,0 +1,57 @@
+/* 体检面板 */
+.chk-panel { display: flex; flex-direction: column; gap: 14px; }
+.chk-head { display: grid; grid-template-columns: 84px 1fr; gap: 12px; align-items: center; }
+.chk-ring { width: 84px; height: 84px; }
+.chk-ring-track { fill: none; stroke: #EEF1F6; stroke-width: 7; }
+.chk-ring-bar { fill: none; stroke-width: 7; stroke-linecap: round; transform: rotate(-90deg); transform-origin: 42px 42px; transition: stroke-dashoffset 0.6s var(--np-ease), stroke 0.3s ease; }
+.chk-ring text { font-size: 26px; font-weight: 700; text-anchor: middle; fill: var(--np-ink); font-variant-numeric: tabular-nums; }
+.chk-ring.is-good .chk-ring-bar { stroke: #15803D; }
+.chk-ring.is-mid .chk-ring-bar { stroke: #D97706; }
+.chk-ring.is-low .chk-ring-bar { stroke: #DC2626; }
+.chk-grade { font-size: 15px; }
+.chk-grade.is-good { color: #15803D; }
+.chk-grade.is-mid { color: #B45309; }
+.chk-grade.is-low { color: #B91C1C; }
+.chk-busy { margin-left: 6px; color: var(--np-accent); }
+
+.chk-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.chk-item {
+  width: 100%; display: grid; grid-template-columns: 22px 1fr; gap: 8px; align-items: start; padding: 8px 10px;
+  border: 1px solid var(--np-line); border-radius: 8px; background: var(--np-panel); font: inherit; color: var(--np-ink);
+  text-align: left; cursor: pointer; transition: border-color 120ms ease, background 120ms ease;
+}
+.chk-item:hover { border-color: #B6C0D4; }
+.chk-item:focus-visible { outline: 2px solid var(--np-accent); outline-offset: 1px; }
+.chk-item[aria-pressed='true'] { border-color: currentColor; }
+.chk-item.is-error[aria-pressed='true'] { color: #B91C1C; background: #FEF2F2; }
+.chk-item.is-warn[aria-pressed='true'] { color: #B45309; background: #FFFBEB; }
+.chk-num {
+  width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 700;
+  color: #FFFFFF; font-variant-numeric: tabular-nums;
+}
+.chk-item.is-error .chk-num { background: #DC2626; }
+.chk-item.is-warn .chk-num { background: #D97706; }
+.chk-text { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.chk-text b { font-size: 13px; font-weight: 600; line-height: 1.45; color: var(--np-ink); }
+.chk-text small { font-size: 12px; line-height: 1.55; color: var(--np-muted); animation: chk-in 0.2s var(--np-ease); }
+@keyframes chk-in { from { opacity: 0; transform: translateY(-2px); } }
+
+.chk-passed { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.chk-passed li { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: #15803D; background: #F0FDF4; border-radius: 999px; padding: 3px 9px 3px 6px; }
+.chk-passed svg { width: 13px; height: 13px; }
+.chk-note { margin: 0; }
+
+/* 平面图上的体检层 */
+.chk-overlay { pointer-events: none; }
+.chk-shapes > * { stroke-width: 30; stroke-linejoin: round; }
+.chk-issue.is-error .chk-shapes > * { fill: rgb(220 38 38 / 0.16); stroke: #DC2626; }
+.chk-issue.is-warn .chk-shapes > * { fill: rgb(217 119 6 / 0.14); stroke: #D97706; stroke-dasharray: 90 60; }
+.chk-pin circle { stroke: #FFFFFF; stroke-width: 40; }
+.chk-issue.is-error .chk-pin circle { fill: #DC2626; }
+.chk-issue.is-warn .chk-pin circle { fill: #D97706; }
+.chk-pin text { font-size: 190px; font-weight: 700; fill: #FFFFFF; text-anchor: middle; }
+.chk-issue { transition: opacity 0.2s ease; }
+.chk-overlay.has-focus .chk-issue:not(.is-focus) { opacity: 0.28; }
+.chk-issue.is-focus .chk-shapes > * { stroke-width: 44; animation: chk-pulse 1.6s ease-in-out infinite; }
+@keyframes chk-pulse { 50% { stroke-opacity: 0.45; } }
+@media (prefers-reduced-motion: reduce) { .chk-issue.is-focus .chk-shapes > * { animation: none; } }

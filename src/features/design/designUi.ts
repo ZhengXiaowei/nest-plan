@@ -46,6 +46,9 @@ interface DesignUi {
   panel: PanelTab;
   sunDay: SunDayKey;
   sunView: SunView;
+  /** 体检里正在看的那条问题 */
+  checkFocus: string | null;
+  setCheckFocus: (id: string | null) => void;
   setPanel: (p: PanelTab) => void;
   setSunDay: (d: SunDayKey) => void;
   setSunView: (v: SunView) => void;
@@ -67,6 +70,8 @@ export const useDesignUi = create<DesignUi>()((set) => ({
   panel: 'props',
   sunDay: 'winter',
   sunView: 'now',
+  checkFocus: null,
+  setCheckFocus: (checkFocus) => set({checkFocus}),
   setPanel: (panel) => set({panel}),
   setSunDay: (sunDay) => set({sunDay}),
   setSunView: (sunView) => set({sunView}),
@@ -88,7 +93,9 @@ export const planView: {
   /** 屏幕坐标转平面坐标；不在画布上返回 null */
   toPlan: (clientX: number, clientY: number) => Vec2 | null;
   svg: () => SVGSVGElement | null;
-} = {fit: () => {}, zoom: () => {}, scale: () => {}, toPlan: () => null, svg: () => null};
+  /** 平滑移到某个点（平面坐标），span 是至少要看清的范围（mm） */
+  focus: (at: Vec2, span?: number) => void;
+} = {fit: () => {}, zoom: () => {}, scale: () => {}, toPlan: () => null, svg: () => null, focus: () => {}};
 
 export const TOOL_HINTS: Record<DesignTool, string> = {
   select: '拖动家具摆放，靠近墙面会自动贴上（按住 Alt 不贴）· 拖右下角改尺寸 · R 旋转 · 方向键微调 · ⌘D 复制',

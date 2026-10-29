@@ -16,6 +16,7 @@ import {RoomsTab} from './RoomsTab';
 const Viewer3D = lazy(() => import('../view3d/Viewer3D'));
 const AssistantTab = lazy(() => import('./AssistantTab'));
 const SunPanel = lazy(() => import('../sun/SunPanel'));
+const CheckPanel = lazy(() => import('../check/CheckPanel'));
 
 export function DesignPage() {
   const view = useDesignUi((s) => s.view);
@@ -103,6 +104,7 @@ export function DesignPage() {
             <Tab value="props" label="属性" />
             <Tab value="rooms" label="房间" />
             <Tab value="sun" label="日照" />
+            <Tab value="check" label="体检" />
             <Tab value="ai" label="AI" />
           </TabList>
         </div>
@@ -112,6 +114,11 @@ export function DesignPage() {
           {tab === 'sun' && (
             <Suspense fallback={<div className="np-loading">加载中…</div>}>
               <SunPanel />
+            </Suspense>
+          )}
+          {tab === 'check' && (
+            <Suspense fallback={<div className="np-loading">加载中…</div>}>
+              <CheckPanel />
             </Suspense>
           )}
           {tab === 'ai' && (

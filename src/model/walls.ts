@@ -15,6 +15,21 @@ export function activeWalls(plan: Plan): Wall[] {
   return plan.walls.filter((w) => !gone.has(w.id));
 }
 
+/**
+ * 改造后还在的门窗：所在的墙被拆了，门窗也就没了。
+ * 有的户型门窗压在整段墙上，有的门窗是墙上的缺口（两边墙断开），两种都算。
+ */
+export function liveOpenings(plan: Plan): Opening[] {
+  if (!plan.demolished.length) return plan.openings;
+  const gone = plan.walls.filter((w) => plan.demolished.includes(w.id));
+  const live = activeWalls(plan);
+  return plan.openings.filter((o) => {
+    const mid: Vec2 = [(o.a[0] + o.b[0]) / 2, (o.a[1] + o.b[1]) / 2];
+    const on = (w: Wall) => distToSegment(mid, w.a, w.b) <= w.thickness / 2 + 30;
+    return !gone.some(on) || live.some(on);
+  });
+}
+
 /** 改造前就有的墙（毛坯）：不含新砌的 */
 export function originalWalls(plan: Plan): Wall[] {
   return plan.walls.filter((w) => !w.added);

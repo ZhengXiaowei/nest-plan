@@ -1,5 +1,5 @@
 import type {Opening, Plan, Site, Vec2} from './types';
-import {activeWalls, distToSegment, wallPieces} from './walls';
+import {activeWalls, distToSegment, liveOpenings, wallPieces} from './walls';
 import {roomArea} from './geometry';
 import {daylight, solarPosition, sunDirOnPlan} from './sun';
 
@@ -84,12 +84,16 @@ export function sunBlockers(plan: Plan): Blocker[] {
     const long = {...w, a: [w.a[0] - dx, w.a[1] - dy] as Vec2, b: [w.b[0] + dx, w.b[1] + dy] as Vec2};
     for (const [a, b] of wallPieces(long, plan.openings)) out.push({a, b, solid: [[0, h]]});
   }
-  for (const o of plan.openings) {
+  // 所在的墙被拆了，门窗也就没了；墙上缺口式的门窗按最近那面墙的高度算
+  for (const o of liveOpenings(plan)) {
     const mid: Vec2 = [(o.a[0] + o.b[0]) / 2, (o.a[1] + o.b[1]) / 2];
-    // 所在的墙被拆了，门窗也就没了
-    const host = walls.find((w) => distToSegment(mid, w.a, w.b) <= w.thickness / 2 + 20);
-    if (!host) continue;
-    out.push({a: o.a, b: o.b, solid: openingSolid(o, host.height ?? plan.wallHeight)});
+    let host: (typeof walls)[number] | undefined;
+    let best = Infinity;
+    for (const w of walls) {
+      const d = distToSegment(mid, w.a, w.b);
+      if (d < best) [best, host] = [d, w];
+    }
+    out.push({a: o.a, b: o.b, solid: openingSolid(o, host?.height ?? plan.wallHeight)});
   }
   return out;
 }

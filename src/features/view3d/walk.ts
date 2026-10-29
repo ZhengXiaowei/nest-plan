@@ -1,6 +1,6 @@
 import type {Opening, Plan, Vec2} from '../../model/types';
 import {polygonArea, polygonCentroid} from '../../model/geometry';
-import {activeWalls, distToSegment, wallPieces} from '../../model/walls';
+import {activeWalls, distToSegment, liveOpenings, wallPieces} from '../../model/walls';
 import {FURNITURE_ELEVATION} from '../../model/catalog';
 
 /** 漫游时能穿过去的家具 */
@@ -24,11 +24,7 @@ export interface Collider {
 
 /** 落在某段墙上的门窗才算数；墙拆了，上面的门窗也跟着没了 */
 export function openingsOnActiveWalls(plan: Plan): Opening[] {
-  const walls = activeWalls(plan);
-  return plan.openings.filter((o) => {
-    const mid: Vec2 = [(o.a[0] + o.b[0]) / 2, (o.a[1] + o.b[1]) / 2];
-    return walls.some((w) => distToSegment(mid, w.a, w.b) <= w.thickness / 2 + 30);
-  });
+  return liveOpenings(plan);
 }
 
 /** 实体墙段 + 窗（窗台挡人），推拉门和平开门洞口不挡 */

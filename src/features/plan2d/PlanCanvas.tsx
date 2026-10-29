@@ -14,6 +14,7 @@ import './plan2d.css';
 
 // 分析图层打开对应页签时才加载
 const SunOverlay = lazy(() => import('../sun/SunOverlay'));
+const CheckOverlay = lazy(() => import('../check/CheckOverlay'));
 
 type ViewBox = {x: number; y: number; w: number; h: number};
 
@@ -351,6 +352,35 @@ export function PlanCanvas() {
       return [p.x, p.y];
     };
     planView.svg = () => svgRef.current;
+    // 平滑移到某个点，画面里至少露出 span 那么大的范围；已经看得清就只平移
+    let anim = 0;
+    planView.focus = (at, span = 4000) => {
+      cancelAnimationFrame(anim);
+      const from = {...vbRef.current};
+      const want = Math.max(span * 2.4, 7000);
+      const w = from.w > want * 1.8 || from.w < want * 0.6 ? want : from.w;
+      const h = (from.h / from.w) * w;
+      const to = {x: at[0] - w / 2, y: at[1] - h / 2, w, h};
+      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        vbRef.current = to;
+        applyViewBox();
+        return;
+      }
+      const t0 = performance.now();
+      const step = (now: number) => {
+        const t = Math.min(1, (now - t0) / 420);
+        const e = 1 - Math.pow(1 - t, 3);
+        vbRef.current = {
+          x: from.x + (to.x - from.x) * e,
+          y: from.y + (to.y - from.y) * e,
+          w: from.w + (to.w - from.w) * e,
+          h: from.h + (to.h - from.h) * e,
+        };
+        applyViewBox();
+        if (t < 1) anim = requestAnimationFrame(step);
+      };
+      anim = requestAnimationFrame(step);
+    };
     const svg = svgRef.current;
     if (!svg) return;
     // 容器尺寸变化时保持比例，不重置缩放
@@ -708,6 +738,11 @@ export function PlanCanvas() {
       )}
       <WallsLayer walls={plan.walls} openings={plan.openings} demolished={plan.demolished} selectedId={selId('wall')} />
       {layers.labels && <RoomLabels rooms={plan.rooms} />}
+      {panel === 'check' && (
+        <Suspense fallback={null}>
+          <CheckOverlay />
+        </Suspense>
+      )}
       {layers.dims && <DimsLayer walls={plan.walls} />}
       <MeasuresLayer measures={plan.measures} selectedId={selId('measure')} />
 
