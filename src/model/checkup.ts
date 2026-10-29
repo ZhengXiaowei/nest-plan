@@ -302,7 +302,9 @@ const FRONT_NEED: Record<string, {need: number; what: string}> = {
   piano: {need: 750, what: '放琴凳坐下弹琴'},
 };
 
-function bedRule(plan: Plan, obstacles: Obstacle[], out: Issue[]) {
+function bedRule(plan: Plan, all: Obstacle[], out: Issue[]) {
+  // 椅子随手一推就开，不算挡床
+  const obstacles = all.filter((o) => !o.type || !MOVABLE.has(o.type));
   for (const f of plan.furniture) {
     if (f.type !== 'bed') continue;
     const room = roomOf([f.cx, f.cy], plan.rooms)?.name ?? '';
@@ -831,9 +833,17 @@ export function runCheckup(plan: Plan): Checkup {
   return {score, issues: unique, passed};
 }
 
-/** 两次体检的差别：解决了哪些、新出了哪些 */
-export function diffCheckups(before: Checkup, after: Checkup): {fixed: Issue[]; added: Issue[]} {
-  const b = new Set(before.issues.map((i) => i.id));
-  const a = new Set(after.issues.map((i) => i.id));
-  return {fixed: before.issues.filter((i) => !a.has(i.id)), added: after.issues.filter((i) => !b.has(i.id))};
+/** 两次体检的差别：解决了哪些、新出了哪些，同一个问题从要改变成建议调（或反过来）也算 */
+export function diffCheckups(
+  before: Checkup,
+  after: Checkup,
+): {fixed: Issue[]; added: Issue[]; eased: Issue[]; worsened: Issue[]} {
+  const b = new Map(before.issues.map((i) => [i.id, i]));
+  const a = new Map(after.issues.map((i) => [i.id, i]));
+  return {
+    fixed: before.issues.filter((i) => !a.has(i.id)),
+    added: after.issues.filter((i) => !b.has(i.id)),
+    eased: after.issues.filter((i) => i.severity === 'warn' && b.get(i.id)?.severity === 'error'),
+    worsened: after.issues.filter((i) => i.severity === 'error' && b.get(i.id)?.severity === 'warn'),
+  };
 }

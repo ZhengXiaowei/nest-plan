@@ -49,6 +49,9 @@ interface DesignUi {
   /** 体检里正在看的那条问题 */
   checkFocus: string | null;
   setCheckFocus: (id: string | null) => void;
+  /** 从别的页签交给 AI 的一句话，AI 页签打开后自动发出 */
+  aiDraft: string | null;
+  setAiDraft: (text: string | null) => void;
   setPanel: (p: PanelTab) => void;
   setSunDay: (d: SunDayKey) => void;
   setSunView: (v: SunView) => void;
@@ -72,6 +75,8 @@ export const useDesignUi = create<DesignUi>()((set) => ({
   sunView: 'now',
   checkFocus: null,
   setCheckFocus: (checkFocus) => set({checkFocus}),
+  aiDraft: null,
+  setAiDraft: (aiDraft) => set({aiDraft}),
   setPanel: (panel) => set({panel}),
   setSunDay: (sunDay) => set({sunDay}),
   setSunView: (sunView) => set({sunView}),

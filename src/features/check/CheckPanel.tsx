@@ -3,6 +3,8 @@ import {RULES, type Issue} from '../../model/checkup';
 import {usePlanStore} from '../../store/planStore';
 import {planView, useDesignUi} from '../design/designUi';
 import {IconCheck} from '../../lib/icons';
+import {Button} from '@astryxdesign/core/Button';
+import {isAiConfigured, useAiSettings} from '../ai/settings';
 import {useCheckup} from './checkStore';
 import './check.css';
 
@@ -50,6 +52,24 @@ function ScoreRing({score}: {score: number}) {
   );
 }
 
+/** 交给 AI 改：没连 AI 时先打开连接设置 */
+function AskAi() {
+  const configured = useAiSettings((s) => isAiConfigured(s.settings));
+  return (
+    <Button
+      label="让 AI 帮我改"
+      variant="secondary"
+      size="sm"
+      onClick={() => {
+        const ui = useDesignUi.getState();
+        ui.setAiDraft('帮我把体检里的问题改掉，能改几个改几个，改动尽量少');
+        ui.setPanel('ai');
+        if (!configured) useAiSettings.getState().openDialog(true);
+      }}
+    />
+  );
+}
+
 export default function CheckPanel() {
   const {result, busy} = useCheckup();
   const focus = useDesignUi((s) => s.checkFocus);
@@ -94,6 +114,8 @@ export default function CheckPanel() {
           </p>
         </div>
       </div>
+
+      {result.issues.length > 0 && <AskAi />}
 
       {result.issues.length > 0 && (
         <ol className="chk-list">
