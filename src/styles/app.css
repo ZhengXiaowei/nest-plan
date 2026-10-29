@@ -1,0 +1,130 @@
+/* 栖图「蓝图」风格的布局与画布色。组件本身的样式由 Astryx 提供。 */
+:root {
+  --np-bg: #F3F5F8;
+  --np-panel: #FFFFFF;
+  --np-line: #DFE3EA;
+  --np-ink: #111827;
+  --np-muted: #576071;
+  --np-accent: #2747D6;
+  --np-accent-soft: #E8ECFC;
+  --np-warn: #C2410C;
+  --np-canvas: #FBFCFE;
+  --np-grid-minor: #EEF1F7;
+  --np-grid-major: #DCE3F2;
+  --np-topbar-h: 52px;
+  --np-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+html, body, #root { height: 100%; }
+body { margin: 0; background: var(--np-bg); color: var(--np-ink); -webkit-font-smoothing: antialiased; }
+
+.np-app { display: grid; grid-template-rows: var(--np-topbar-h) 1fr; height: 100%; min-height: 0; }
+
+/* 顶栏 */
+.np-topbar {
+  display: flex; align-items: center; gap: 16px; padding: 0 16px;
+  background: var(--np-panel); border-bottom: 1px solid var(--np-line);
+  view-transition-name: np-topbar;
+}
+.np-brand { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 15px; letter-spacing: 0.02em; white-space: nowrap; }
+.np-brand-mark { width: 24px; height: 24px; flex: none; }
+.np-brand small { color: var(--np-muted); font-weight: 500; letter-spacing: 0; }
+.np-topbar-nav { display: flex; justify-content: center; flex: 1; min-width: 0; }
+.np-topbar-actions { display: flex; align-items: center; gap: 8px; }
+
+/* 设计页：左库 / 画布 / 右面板 */
+.np-design { display: grid; grid-template-columns: 248px 1fr 320px; min-height: 0; view-transition-name: np-main; }
+.np-panel { background: var(--np-panel); min-height: 0; overflow: auto; }
+.np-panel--left { border-right: 1px solid var(--np-line); }
+.np-panel--right { border-left: 1px solid var(--np-line); display: flex; flex-direction: column; }
+.np-panel-section { padding: 12px 16px; }
+.np-panel-title { font-size: 12px; font-weight: 600; color: var(--np-muted); text-transform: uppercase; letter-spacing: 0.06em; margin: 4px 0 8px; }
+
+.np-stage { position: relative; min-width: 0; min-height: 0; }
+.np-stage-toolbar {
+  position: absolute; top: 12px; left: 12px; display: flex; gap: 6px; z-index: 2;
+  background: var(--np-panel); border: 1px solid var(--np-line); border-radius: 10px; padding: 4px;
+}
+.np-stage-full { position: absolute; inset: 0; }
+
+/* 3D 画中画 */
+.np-pip {
+  position: absolute; right: 12px; bottom: 12px; width: min(36%, 420px); aspect-ratio: 4 / 3; z-index: 2;
+  background: var(--np-panel); border: 1px solid var(--np-line); border-radius: 12px; overflow: hidden;
+  box-shadow: 0 8px 24px rgb(17 24 39 / 0.08);
+  transition: width 260ms var(--np-ease), height 260ms var(--np-ease);
+}
+.np-pip-label {
+  position: absolute; top: 8px; left: 10px; z-index: 1; font-size: 12px; color: var(--np-muted);
+  background: rgb(255 255 255 / 0.85); padding: 2px 8px; border-radius: 6px; pointer-events: none;
+}
+.np-loading { display: grid; place-items: center; height: 100%; color: var(--np-muted); font-size: 13px; }
+
+/* 家具库 */
+.np-lib-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.np-lib-item {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 8px;
+  border: 1px solid var(--np-line); border-radius: 8px; background: var(--np-panel);
+  font: inherit; font-size: 12px; color: var(--np-ink); cursor: pointer; text-align: left;
+  transition: border-color 120ms ease, transform 120ms var(--np-ease);
+}
+.np-lib-item:hover { border-color: var(--np-accent); }
+.np-lib-item:active { transform: scale(0.98); }
+.np-lib-item span { color: var(--np-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.np-lib-swatch { width: 100%; height: 22px; border-radius: 4px; margin-bottom: 4px; border: 1px solid rgb(0 0 0 / 0.06); }
+
+/* 右侧面板内容 */
+.np-tab-body { flex: 1; overflow: auto; padding: 16px; display: flex; flex-direction: column; gap: 16px; }
+.np-kv { display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; font-size: 13px; }
+.np-kv dt { color: var(--np-muted); }
+.np-kv dd { margin: 0; font-variant-numeric: tabular-nums; }
+.np-swatches { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.np-swatch-btn {
+  display: flex; flex-direction: column; gap: 4px; align-items: center; padding: 6px 4px;
+  border: 1px solid var(--np-line); border-radius: 8px; background: none; font: inherit; font-size: 11px;
+  color: var(--np-ink); cursor: pointer;
+}
+.np-swatch-btn[aria-pressed='true'] { border-color: var(--np-accent); box-shadow: 0 0 0 1px var(--np-accent); }
+.np-swatch-btn i { width: 100%; height: 18px; border-radius: 4px; border: 1px solid rgb(0 0 0 / 0.06); }
+.np-room-row { display: flex; justify-content: space-between; font-size: 13px; padding: 6px 0; border-bottom: 1px dashed var(--np-line); font-variant-numeric: tabular-nums; }
+.np-room-row button { all: unset; cursor: pointer; }
+.np-room-row button:hover { color: var(--np-accent); }
+.np-total { display: flex; justify-content: space-between; font-weight: 600; font-size: 14px; padding-top: 8px; }
+.np-total b { color: var(--np-accent); font-variant-numeric: tabular-nums; }
+.np-hint { font-size: 12px; color: var(--np-muted); line-height: 1.6; }
+
+/* 还原页 */
+.np-trace { display: grid; grid-template-columns: 1fr 360px; min-height: 0; view-transition-name: np-main; }
+.np-trace-stage { position: relative; display: grid; place-items: center; padding: 24px; min-height: 0; overflow: hidden; }
+.np-drop {
+  width: min(720px, 100%); aspect-ratio: 4 / 3; display: grid; place-items: center; text-align: center;
+  border: 1.5px dashed #B6C0D4; border-radius: 16px; background: var(--np-canvas); color: var(--np-muted);
+  transition: border-color 160ms ease, background 160ms ease; cursor: pointer;
+}
+.np-drop.is-over { border-color: var(--np-accent); background: var(--np-accent-soft); }
+.np-drop strong { display: block; color: var(--np-ink); font-size: 16px; margin-bottom: 6px; }
+.np-trace-image { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 8px; box-shadow: 0 2px 12px rgb(17 24 39 / 0.08); background: #fff; }
+.np-trace-side { background: var(--np-panel); border-left: 1px solid var(--np-line); padding: 20px; overflow: auto; display: flex; flex-direction: column; gap: 20px; }
+
+/* 回放页占位 */
+.np-replay { display: grid; place-items: center; view-transition-name: np-main; }
+
+::view-transition-old(np-main), ::view-transition-new(np-main) { animation-duration: 220ms; animation-timing-function: var(--np-ease); }
+
+@media (max-width: 1100px) {
+  .np-design { grid-template-columns: 1fr; grid-template-rows: 1fr auto; }
+  .np-panel--left { display: none; }
+  .np-panel--right { border-left: 0; border-top: 1px solid var(--np-line); max-height: 40vh; }
+  .np-trace { grid-template-columns: 1fr; }
+  .np-trace-side { border-left: 0; border-top: 1px solid var(--np-line); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition-duration: 0ms !important; animation-duration: 0ms !important; }
+}
+
+/* AI 助手对话 */
+.np-chat { display: flex; flex-direction: column; gap: 8px; }
+.np-chat-msg { font-size: 13px; line-height: 1.6; padding: 8px 10px; border-radius: 10px; white-space: pre-wrap; max-width: 92%; }
+.np-chat-msg--user { align-self: flex-end; background: var(--np-accent); color: #fff; }
+.np-chat-msg--assistant { align-self: flex-start; background: var(--np-bg); }

@@ -1,0 +1,51 @@
+.fp-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+  user-select: none;
+  cursor: grab;
+  background: var(--np-canvas);
+}
+.fp-canvas:active { cursor: grabbing; }
+
+.fp-grid-minor { fill: none; stroke: var(--np-grid-minor); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.fp-grid-major { fill: none; stroke: var(--np-grid-major); stroke-width: 1; vector-effect: non-scaling-stroke; }
+
+.fp-room { fill-opacity: 0.55; stroke: none; cursor: pointer; transition: fill-opacity 160ms ease; }
+.fp-room:hover { fill-opacity: 0.75; }
+.fp-room.is-selected { fill-opacity: 0.9; stroke: var(--np-accent); stroke-width: 2; vector-effect: non-scaling-stroke; }
+
+.fp-room-labels { pointer-events: none; }
+.fp-room-name { font-size: 210px; font-weight: 600; fill: var(--np-ink); }
+.fp-room-area { font-size: 160px; fill: var(--np-muted); font-variant-numeric: tabular-nums; }
+
+.fp-wall { stroke: none; }
+.fp-wall--bearing { fill: var(--np-ink); }
+.fp-wall--exterior { fill: #4B5563; }
+.fp-wall--partition { fill: #9CA3AF; }
+.fp-wall--low { fill: #E5E7EB; stroke: #9CA3AF; stroke-width: 1; vector-effect: non-scaling-stroke; }
+
+.fp-window polygon { fill: #FFFFFF; stroke: var(--np-accent); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.fp-window .fp-window-glass { fill: var(--np-accent-soft); }
+.fp-slide polygon { fill: #FFFFFF; stroke: #9CA3AF; stroke-width: 1; vector-effect: non-scaling-stroke; }
+.fp-slide-leaf { fill: none; stroke: var(--np-accent); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.fp-door-gap { fill: var(--np-canvas); }
+.fp-door-leaf { stroke: var(--np-ink); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.fp-door-arc { fill: none; stroke: var(--np-muted); stroke-width: 1; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; }
+.fp-door.is-entry .fp-door-leaf { stroke: var(--np-accent); stroke-width: 2.5; }
+
+.fp-furn { cursor: move; }
+.fp-furn-body { stroke: #6B7280; stroke-width: 1; vector-effect: non-scaling-stroke; }
+.fp-furn-rug { stroke: #9CA3AF; stroke-width: 1; stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; }
+.fp-furn-detail { fill: #FFFFFF99; stroke: #6B728080; stroke-width: 1; vector-effect: non-scaling-stroke; }
+.fp-furn-line { stroke: #6B728066; stroke-width: 1; vector-effect: non-scaling-stroke; }
+.fp-furn-label { fill: #374151; pointer-events: none; }
+.fp-furn:hover .fp-furn-body { stroke: var(--np-accent); }
+.fp-sel-box { fill: none; stroke: var(--np-accent); stroke-width: 1.5; stroke-dasharray: 6 4; vector-effect: non-scaling-stroke; pointer-events: none; }
+.fp-sel-stem { stroke: var(--np-accent); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.fp-sel-handle { fill: #FFFFFF; stroke: var(--np-accent); stroke-width: 2; vector-effect: non-scaling-stroke; cursor: grab; }
+
+@media (prefers-reduced-motion: reduce) {
+  .fp-room { transition: none; }
+}

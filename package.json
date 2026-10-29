@@ -1,0 +1,38 @@
+{
+  "name": "nest-plan",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "栖图 NestPlan：上传户型图还原，在线 2D / 3D 装修设计",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -p tsconfig.json && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -p tsconfig.json",
+    "theme": "astryx theme build src/theme/blueprint.ts --out src/theme/generated/blueprint.css && node scripts/patch-theme.mjs",
+    "budget": "node scripts/check-budget.mjs"
+  },
+  "dependencies": {
+    "@astryxdesign/core": "^0.7.4",
+    "@astryxdesign/theme-neutral": "^0.7.4",
+    "@react-three/drei": "^10.7.9",
+    "@react-three/fiber": "^9.8.2",
+    "@stylexjs/stylex": "^0.19.1",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "three": "^0.186.1",
+    "zustand": "^5.0.16"
+  },
+  "devDependencies": {
+    "@astryxdesign/cli": "^0.7.4",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@types/three": "^0.186.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.5"
+  },
+  "engines": {
+    "node": ">=20.19"
+  }
+}
