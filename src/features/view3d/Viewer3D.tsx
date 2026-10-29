@@ -1,5 +1,5 @@
-import {memo, useMemo} from 'react';
-import {Canvas} from '@react-three/fiber';
+import {memo, useEffect, useMemo, useRef} from 'react';
+import {Canvas, useThree} from '@react-three/fiber';
 import {OrbitControls} from '@react-three/drei';
 import * as THREE from 'three';
 import type {Furniture, Opening, Plan, Room, Vec2, Wall} from '../../model/types';
@@ -136,37 +136,79 @@ const FurnitureMeshes = memo(function FurnitureMeshes({furniture}: {furniture: F
   );
 });
 
-function Scene({plan}: {plan: Plan}) {
+/** 整套房子的外接球，用来摆相机：保证任何尺寸的户型一进来都完整可见 */
+function framing(plan: Plan) {
   const b = planBounds(plan);
+  const w = (b.maxX - b.minX) * M;
+  const d = (b.maxY - b.minY) * M;
   const cx = ((b.minX + b.maxX) / 2) * M;
   const cz = ((b.minY + b.maxY) / 2) * M;
+  const radius = Math.hypot(w, d, plan.wallHeight * M) / 2;
+  const distance = (radius / Math.sin(((FOV / 2) * Math.PI) / 180)) * 1.05;
+  const dir = new THREE.Vector3(0.5, 0.95, 0.85).normalize();
+  return {cx, cz, w, d, position: [cx + dir.x * distance, dir.y * distance, cz + dir.z * distance] as [number, number, number]};
+}
+
+const FOV = 40;
+
+/** 毛坯地面：没圈成房间的地方也有地，不会露出背景 */
+function Ground({cx, cz, w, d}: {cx: number; cz: number; w: number; d: number}) {
+  return (
+    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[cx, -0.004, cz]} material={mat('#E2DFDA', {roughness: 0.95})}>
+      <planeGeometry args={[w, d]} />
+    </mesh>
+  );
+}
+
+/** 换了户型（比如刚从还原页生成）就重新取景 */
+function Reframe({planId, position, target}: {planId: string; position: [number, number, number]; target: [number, number, number]}) {
+  const camera = useThree((s) => s.camera);
+  const controls = useThree((s) => s.controls) as unknown as {target: THREE.Vector3; update(): void} | null;
+  const invalidate = useThree((s) => s.invalidate);
+  const first = useRef(true);
+  useEffect(() => {
+    if (first.current) {
+      first.current = false;
+      return;
+    }
+    camera.position.set(...position);
+    controls?.target.set(...target);
+    controls?.update();
+    invalidate();
+    // 只在换户型时取景，编辑家具不打断用户的视角
+  }, [planId]);
+  return null;
+}
+
+function Scene({plan}: {plan: Plan}) {
+  const f = framing(plan);
+  const {cx, cz} = f;
   return (
     <>
       <hemisphereLight args={['#FFFFFF', '#D6DBE4', 1.6]} />
       <directionalLight position={[cx + 6, 12, cz + 8]} intensity={1.4} />
       <group>
+        <Ground cx={cx} cz={cz} w={f.w} d={f.d} />
         <Floors rooms={plan.rooms} />
         <Walls walls={plan.walls} height={plan.wallHeight} />
         <Openings openings={plan.openings} height={plan.wallHeight} />
         <FurnitureMeshes furniture={plan.furniture} />
       </group>
       <OrbitControls target={[cx, 0, cz]} enableDamping dampingFactor={0.12} maxPolarAngle={Math.PI / 2.1} makeDefault />
+      <Reframe planId={plan.id} position={f.position} target={[cx, 0, cz]} />
     </>
   );
 }
 
 export default function Viewer3D() {
   const plan = usePlanStore((s) => s.plan);
-  const b = planBounds(plan);
-  const cx = ((b.minX + b.maxX) / 2) * M;
-  const cz = ((b.minY + b.maxY) / 2) * M;
-  const span = Math.max(b.maxX - b.minX, b.maxY - b.minY) * M;
+  const {position} = framing(plan);
   return (
     <Canvas
       frameloop="demand"
       dpr={[1, 2]}
       gl={{antialias: true, powerPreference: 'high-performance'}}
-      camera={{fov: 40, near: 0.1, far: 200, position: [cx + span * 0.55, span * 1.05, cz + span * 1.0]}}
+      camera={{fov: FOV, near: 0.1, far: 400, position}}
     >
       <color attach="background" args={['#F3F5F8']} />
       <Scene plan={plan} />

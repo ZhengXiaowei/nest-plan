@@ -15,7 +15,7 @@ const AiSettingsDialog = lazy(() => import('./features/ai/AiSettingsDialog'));
 
 export function App() {
   const route = useRoute();
-  useUndoShortcuts();
+  useDesignShortcuts(route === 'design');
 
   return (
     <div className="np-app">
@@ -66,16 +66,22 @@ function TopBar({route}: {route: Route}) {
         </SegmentedControl>
       </nav>
       <div className="np-topbar-actions">
-        <IconButton label="撤销" tooltip="撤销 ⌘Z" icon={<IconUndo />} variant="ghost" size="sm" isDisabled={!canUndo} onClick={() => usePlanStore.getState().undo()} />
-        <IconButton label="重做" tooltip="重做 ⇧⌘Z" icon={<IconRedo />} variant="ghost" size="sm" isDisabled={!canRedo} onClick={() => usePlanStore.getState().redo()} />
+        {route === 'design' && (
+          <>
+            <IconButton label="撤销" tooltip="撤销 ⌘Z" icon={<IconUndo />} variant="ghost" size="sm" isDisabled={!canUndo} onClick={() => usePlanStore.getState().undo()} />
+            <IconButton label="重做" tooltip="重做 ⇧⌘Z" icon={<IconRedo />} variant="ghost" size="sm" isDisabled={!canRedo} onClick={() => usePlanStore.getState().redo()} />
+          </>
+        )}
         <Button label={aiReady ? 'AI 已连接' : '连接 AI'} icon={<IconSpark />} variant={aiReady ? 'secondary' : 'primary'} size="sm" onClick={() => openDialog(true)} />
       </div>
     </header>
   );
 }
 
-function useUndoShortcuts() {
+/** 设计页的快捷键；还原页有自己的一套 */
+function useDesignShortcuts(enabled: boolean) {
   useEffect(() => {
+    if (!enabled) return;
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
       if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
@@ -98,5 +104,5 @@ function useUndoShortcuts() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  }, [enabled]);
 }

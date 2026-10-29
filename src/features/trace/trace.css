@@ -1,0 +1,51 @@
+.tr-canvas { display: block; width: 100%; height: 100%; touch-action: none; user-select: none; background: var(--np-canvas); }
+
+.tr-wall { stroke-linecap: square; cursor: pointer; }
+.tr-wall--bearing { stroke: var(--np-ink); }
+.tr-wall--exterior { stroke: #374151; }
+.tr-wall--partition { stroke: var(--np-accent); }
+.tr-wall--low { stroke: #93A4C8; }
+.tr-wall.is-review { stroke: var(--np-warn); stroke-opacity: 0.85; }
+.tr-wall.is-selected { filter: drop-shadow(0 0 3px rgb(39 71 214 / 0.8)); }
+
+.tr-opening { cursor: pointer; }
+.tr-opening-body { stroke: #FFFFFF; stroke-linecap: butt; }
+.tr-opening-core { stroke: var(--np-accent); stroke-linecap: butt; }
+.tr-opening--window .tr-opening-core { stroke-dasharray: 2 2; }
+.tr-opening--slidingDoor .tr-opening-core { stroke-dasharray: 8 3; }
+.tr-opening.is-review .tr-opening-core { stroke: var(--np-warn); }
+.tr-opening.is-selected .tr-opening-body { stroke: var(--np-accent-soft); }
+.tr-opening.is-preview { opacity: 0.7; pointer-events: none; }
+
+.tr-room { fill: var(--np-accent); fill-opacity: 0.07; stroke: var(--np-accent); stroke-opacity: 0.5; stroke-width: 1; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; cursor: pointer; }
+.tr-room.is-review { fill: var(--np-warn); stroke: var(--np-warn); }
+.tr-room.is-selected { fill-opacity: 0.18; stroke-opacity: 1; stroke-dasharray: none; }
+.tr-room-label { fill: var(--np-ink); font-weight: 600; pointer-events: none; paint-order: stroke; stroke: #FFFFFFCC; stroke-width: 3px; }
+.tr-room-draft { fill: var(--np-accent); fill-opacity: 0.1; stroke: var(--np-accent); stroke-width: 1.5; vector-effect: non-scaling-stroke; pointer-events: none; }
+
+.tr-chain { fill: none; stroke: var(--np-accent); stroke-linecap: square; stroke-linejoin: miter; pointer-events: none; }
+.tr-rubber { stroke: var(--np-accent); stroke-opacity: 0.55; stroke-linecap: square; pointer-events: none; }
+.tr-rubber--bearing { stroke: var(--np-ink); }
+.tr-guide { stroke: var(--np-accent); stroke-width: 1; stroke-dasharray: 4 4; vector-effect: non-scaling-stroke; pointer-events: none; opacity: 0.6; }
+.tr-cursor { fill: #FFFFFF; stroke: var(--np-accent); stroke-width: 1.5; vector-effect: non-scaling-stroke; pointer-events: none; }
+.tr-cursor.is-endpoint, .tr-cursor.is-wall { fill: var(--np-accent); }
+.tr-length { fill: var(--np-accent); font-weight: 600; paint-order: stroke; stroke: #FFFFFF; stroke-width: 3px; pointer-events: none; font-variant-numeric: tabular-nums; }
+.tr-vertex { fill: #FFFFFF; stroke: var(--np-accent); stroke-width: 2; vector-effect: non-scaling-stroke; cursor: move; }
+
+.tr-calib line { stroke: var(--np-warn); stroke-dasharray: 6 4; }
+.tr-calib circle { fill: #FFFFFF; stroke: var(--np-warn); }
+.tr-calib text { fill: var(--np-warn); font-weight: 600; paint-order: stroke; stroke: #FFFFFF; stroke-width: 3px; }
+
+.tr-toolbar { position: absolute; top: 12px; left: 12px; right: 12px; display: flex; gap: 8px; align-items: center; z-index: 2; pointer-events: none; }
+.tr-toolbar > * { pointer-events: auto; }
+.tr-toolbox { display: flex; gap: 6px; align-items: center; background: var(--np-panel); border: 1px solid var(--np-line); border-radius: 10px; padding: 4px; }
+.tr-tip { margin-left: auto; font-size: 12px; color: var(--np-muted); background: rgb(255 255 255 / 0.9); border: 1px solid var(--np-line); border-radius: 8px; padding: 4px 10px; max-width: 360px; }
+
+.tr-review-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px dashed var(--np-line); font-size: 13px; }
+.tr-review-row button.tr-review-name { all: unset; flex: 1; cursor: pointer; }
+.tr-review-row button.tr-review-name:hover { color: var(--np-accent); }
+.tr-review-conf { color: var(--np-warn); font-variant-numeric: tabular-nums; font-size: 12px; }
+.tr-counts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.tr-count { border: 1px solid var(--np-line); border-radius: 10px; padding: 8px 10px; }
+.tr-count b { display: block; font-size: 18px; font-variant-numeric: tabular-nums; }
+.tr-count span { font-size: 12px; color: var(--np-muted); }

@@ -1,45 +1,57 @@
-import {useRef, useState, type DragEvent, type PointerEvent as ReactPointerEvent} from 'react';
+import {useRef, useState, type DragEvent} from 'react';
 import {Stepper, Step} from '@astryxdesign/core/Stepper';
 import {Button} from '@astryxdesign/core/Button';
 import {Banner} from '@astryxdesign/core/Banner';
 import {TextInput} from '@astryxdesign/core/TextInput';
 import {Heading} from '@astryxdesign/core/Heading';
+import {IconButton} from '@astryxdesign/core/IconButton';
+import {IconRedo, IconUndo} from '../../lib/icons';
+import {SegmentedControl, SegmentedControlItem} from '@astryxdesign/core/SegmentedControl';
 import {VStack, HStack} from '@astryxdesign/core/Stack';
-import {loadImageFile, type LoadedImage} from './image';
+import {loadImageFile} from './image';
 import {useAiSettings, isAiConfigured} from '../ai/settings';
-import {estimateMmPerPixel, recognizeFloorplan, recognizedToPlan, type RecognizedPlan} from '../ai/recognize';
+import {recognizeFloorplan} from '../ai/recognize';
 import {usePlanStore} from '../../store/planStore';
 import {createSamplePlan} from '../../model/samplePlan';
 import {navigate} from '../../lib/router';
+import {useTraceStore, type TraceTool} from './traceStore';
+import {TraceCanvas} from './TraceCanvas';
+import {useScale} from './scale';
+import {draftToPlan, needsReview} from './draft';
+import type {WallKind} from '../../model/types';
 
-type Pt = [number, number];
+const TOOL_TIPS: Record<TraceTool, string> = {
+  select: '点墙、门窗或房间选中；拖白色圆点改墙角。拖空白处平移，滚轮缩放。',
+  wall: '沿墙中线点击连续画墙，靠近端点、墙体、水平垂直会自动吸附。双击、右键或 Esc 结束，按住 Shift 不吸附。',
+  door: '把鼠标移到墙上，点一下放门（默认 900mm 宽）。',
+  window: '把鼠标移到墙上，点一下放窗（默认 1500mm 宽）。',
+  slidingDoor: '把鼠标移到墙上，点一下放推拉门（默认 2400mm 宽）。',
+  room: '沿房间内侧依次点角点，点回起点或按 Enter 完成。',
+  calibrate: '点两下选一段知道长度的墙，再在右边填实际长度。',
+};
+
+const KIND_LABEL = {wall: '墙', opening: '门窗', room: '房间'} as const;
+const OPENING_LABEL = {door: '门', window: '窗', slidingDoor: '推拉门'} as const;
 
 /**
- * 户型还原：上传 → AI 识别 → 校对 → 标定尺寸 → 开始设计。
- * 这一版先把上传、识别、标定串起来；逐项校对和手动描墙在下一步补上。
+ * 户型还原：上传 → AI 识别（可选）→ 校对和描墙 → 标定尺寸 → 开始设计。
+ * 没连 AI 也能用：直接在图上描墙、放门窗、圈房间。
  */
 export default function TracePage() {
-  const [image, setImage] = useState<LoadedImage | null>(null);
+  const image = useTraceStore((s) => s.image);
+  const draft = useTraceStore((s) => s.draft);
+  const tool = useTraceStore((s) => s.tool);
   const [over, setOver] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [recognized, setRecognized] = useState<RecognizedPlan | null>(null);
   const [busy, setBusy] = useState(false);
-  const [calib, setCalib] = useState<Pt[]>([]);
-  const [calibMm, setCalibMm] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
   const aiSettings = useAiSettings((s) => s.settings);
   const openDialog = useAiSettings((s) => s.openDialog);
+  const {mmPerPixel} = useScale();
 
-  const manualRatio = (() => {
-    const mm = Number(calibMm);
-    if (calib.length !== 2 || !(mm > 0)) return null;
-    const px = Math.hypot(calib[1]![0] - calib[0]![0], calib[1]![1] - calib[0]![1]);
-    return px > 0 ? mm / px : null;
-  })();
-  const autoRatio = recognized ? estimateMmPerPixel(recognized) : null;
-  const mmPerPixel = manualRatio ?? autoRatio;
-
-  const activeStep = !image ? 0 : !recognized ? 1 : !mmPerPixel ? 3 : 4;
+  const hasDraft = draft.walls.length > 0;
+  const reviewCount = [...draft.walls, ...draft.openings, ...draft.rooms].filter(needsReview).length;
+  const activeStep = !image ? 0 : !hasDraft ? 1 : reviewCount > 0 ? 2 : !mmPerPixel ? 3 : 4;
 
   const onFile = async (file: File | undefined) => {
     if (!file) return;
@@ -49,9 +61,7 @@ export default function TracePage() {
       return;
     }
     try {
-      setImage(await loadImageFile(file));
-      setRecognized(null);
-      setCalib([]);
+      useTraceStore.getState().setImage(await loadImageFile(file));
     } catch {
       setError('这张图片读不出来，换一张试试。');
     }
@@ -72,7 +82,7 @@ export default function TracePage() {
     setBusy(true);
     setError(null);
     try {
-      setRecognized(await recognizeFloorplan(aiSettings, {dataUrl: image.dataUrl}));
+      useTraceStore.getState().setRecognized(await recognizeFloorplan(aiSettings, {dataUrl: image.dataUrl}));
     } catch (e) {
       setError(`识别失败：${e instanceof Error ? e.message : String(e)}`);
     } finally {
@@ -80,15 +90,9 @@ export default function TracePage() {
     }
   };
 
-  const onImageClick = (e: ReactPointerEvent<SVGSVGElement>) => {
-    const svg = e.currentTarget;
-    const p = new DOMPoint(e.clientX, e.clientY).matrixTransform(svg.getScreenCTM()!.inverse());
-    setCalib((c) => (c.length >= 2 ? [[p.x, p.y]] : [...c, [p.x, p.y]]));
-  };
-
   const start = () => {
-    if (!recognized || !mmPerPixel) return;
-    usePlanStore.getState().loadPlan(recognizedToPlan(recognized, mmPerPixel, image?.name.replace(/\.\w+$/, '') || '我的户型'));
+    if (!hasDraft || !mmPerPixel) return;
+    usePlanStore.getState().loadPlan(draftToPlan(draft, mmPerPixel, image?.name.replace(/\.\w+$/, '') || '我的户型'));
     navigate('design');
   };
 
@@ -101,6 +105,7 @@ export default function TracePage() {
     <main className="np-trace">
       <section
         className="np-trace-stage"
+        style={image ? {padding: 0, display: 'block'} : undefined}
         onDragOver={(e) => {
           e.preventDefault();
           setOver(true);
@@ -117,30 +122,24 @@ export default function TracePage() {
             </div>
           </button>
         ) : (
-          <div style={{position: 'relative', maxWidth: '100%', maxHeight: '100%', aspectRatio: `${image.width} / ${image.height}`}}>
-            <img src={image.dataUrl} alt="上传的户型图" className="np-trace-image" style={{width: '100%', height: '100%'}} />
-            <svg
-              viewBox={`0 0 ${image.width} ${image.height}`}
-              style={{position: 'absolute', inset: 0, width: '100%', height: '100%', cursor: 'crosshair'}}
-              onPointerDown={onImageClick}
-              aria-label="点两下标定一段已知长度"
-            >
-              {recognized?.walls.map((w, i) => (
-                <line key={i} x1={w.a[0]} y1={w.a[1]} x2={w.b[0]} y2={w.b[1]} stroke="#2747D6" strokeOpacity={0.7} strokeWidth={Math.max(2, w.thickness)} strokeLinecap="square" />
-              ))}
-              {recognized?.openings.map((o, i) => (
-                <line key={`o${i}`} x1={o.a[0]} y1={o.a[1]} x2={o.b[0]} y2={o.b[1]} stroke="#C2410C" strokeWidth={4} />
-              ))}
-              {calib.length > 0 && (
-                <g stroke="#C2410C" fill="#fff" strokeWidth={3} vectorEffect="non-scaling-stroke">
-                  {calib.length === 2 && <line x1={calib[0]![0]} y1={calib[0]![1]} x2={calib[1]![0]} y2={calib[1]![1]} strokeDasharray="8 6" />}
-                  {calib.map((p, i) => (
-                    <circle key={i} cx={p[0]} cy={p[1]} r={Math.max(6, image.width / 200)} />
-                  ))}
-                </g>
-              )}
-            </svg>
-          </div>
+          <>
+            <div className="tr-toolbar">
+              <div className="tr-toolbox">
+                <SegmentedControl label="工具" value={tool} onChange={(v) => useTraceStore.getState().setTool(v as TraceTool)} size="sm">
+                  <SegmentedControlItem value="select" label="选择" />
+                  <SegmentedControlItem value="wall" label="画墙" />
+                  <SegmentedControlItem value="door" label="门" />
+                  <SegmentedControlItem value="window" label="窗" />
+                  <SegmentedControlItem value="slidingDoor" label="推拉门" />
+                  <SegmentedControlItem value="room" label="房间" />
+                  <SegmentedControlItem value="calibrate" label="标定" />
+                </SegmentedControl>
+              </div>
+              <UndoRedo />
+              <div className="tr-tip">{TOOL_TIPS[tool]}</div>
+            </div>
+            <TraceCanvas key={image.dataUrl.length + image.name} image={image} />
+          </>
         )}
       </section>
 
@@ -148,38 +147,32 @@ export default function TracePage() {
         <Heading level={2}>户型还原</Heading>
         <Stepper activeStep={activeStep} orientation="vertical" density="compact" label="还原步骤">
           <Step step={0} label="上传户型图" description="截图、照片都可以" />
-          <Step step={1} label="AI 识别" description="用你自己连接的模型识别墙体、门窗、房间" />
-          <Step step={2} label="校对墙体与门窗" description="下一版支持逐项确认和手动描墙" />
-          <Step step={3} label="标定尺寸" description="在图上点两下，输入这段的实际长度" />
+          <Step step={1} label="识别或描墙" description="用你连接的模型识别，或者直接在图上描" />
+          <Step step={2} label="校对" description={reviewCount ? `还有 ${reviewCount} 项需要确认` : '低把握的识别结果会标成橙色'} />
+          <Step step={3} label="标定尺寸" description="点两下选一段已知长度" />
           <Step step={4} label="开始设计" />
         </Stepper>
 
         {error && <Banner status="error" title={error} isDismissable onDismiss={() => setError(null)} />}
 
-        <VStack gap={3}>
-          {image && (
-            <HStack gap={2}>
-              <Button label={recognized ? '重新识别' : 'AI 识别'} variant="primary" isLoading={busy} onClick={runRecognize} />
-              <Button label="换一张" variant="ghost" onClick={() => inputRef.current?.click()} />
-            </HStack>
-          )}
-          {recognized && (
-            <p className="np-hint">
-              识别到 {recognized.walls.length} 段墙、{recognized.openings.length} 个门窗、{recognized.rooms.length} 个房间
-              {autoRatio ? `，并从图上的尺寸标注自动算出比例（1 像素 ≈ ${autoRatio.toFixed(1)} mm）` : '，没读到尺寸标注，请手动标定'}。
-            </p>
-          )}
-          {image && (
-            <TextInput
-              label="标定长度（mm）"
-              description={calib.length === 2 ? '已选两点，输入这段的实际长度' : '在图上点两下，选一段知道长度的墙'}
-              value={calibMm}
-              onChange={(v) => setCalibMm(v.replace(/[^\d.]/g, ''))}
-              placeholder="例如 3600"
-            />
-          )}
-          {image && <Button label="开始设计" variant="primary" isDisabled={!recognized || !mmPerPixel} onClick={start} />}
-        </VStack>
+        {image && (
+          <HStack gap={2}>
+            <Button label={hasDraft ? '重新识别' : 'AI 识别'} variant={hasDraft ? 'secondary' : 'primary'} isLoading={busy} onClick={runRecognize} />
+            <Button label="换一张图" variant="ghost" onClick={() => inputRef.current?.click()} />
+          </HStack>
+        )}
+
+        {image && <Counts />}
+        {image && <SelectionPanel />}
+        {image && reviewCount > 0 && <ReviewList />}
+        {image && <Calibration />}
+
+        {image && (
+          <VStack gap={2}>
+            <Button label="开始设计" variant="primary" isDisabled={!hasDraft || !mmPerPixel} onClick={start} />
+            {!mmPerPixel && hasDraft && <p className="np-hint">先标定尺寸，才能换算成真实的毫米。</p>}
+          </VStack>
+        )}
 
         <div style={{marginTop: 'auto'}}>
           <p className="np-hint">手上还没有户型图？先用示例户型（三室两厅）体验一下。</p>
@@ -187,5 +180,150 @@ export default function TracePage() {
         </div>
       </aside>
     </main>
+  );
+}
+
+function UndoRedo() {
+  const canUndo = useTraceStore((s) => s.past.length > 0);
+  const canRedo = useTraceStore((s) => s.future.length > 0);
+  return (
+    <div className="tr-toolbox">
+      <IconButton label="撤销" tooltip="撤销 ⌘Z" icon={<IconUndo />} variant="ghost" size="sm" isDisabled={!canUndo} onClick={() => useTraceStore.getState().undo()} />
+      <IconButton label="重做" tooltip="重做 ⇧⌘Z" icon={<IconRedo />} variant="ghost" size="sm" isDisabled={!canRedo} onClick={() => useTraceStore.getState().redo()} />
+    </div>
+  );
+}
+
+function Counts() {
+  const draft = useTraceStore((s) => s.draft);
+  return (
+    <div className="tr-counts">
+      <div className="tr-count">
+        <b>{draft.walls.length}</b>
+        <span>段墙</span>
+      </div>
+      <div className="tr-count">
+        <b>{draft.openings.length}</b>
+        <span>个门窗</span>
+      </div>
+      <div className="tr-count">
+        <b>{draft.rooms.length}</b>
+        <span>个房间</span>
+      </div>
+    </div>
+  );
+}
+
+function SelectionPanel() {
+  const selection = useTraceStore((s) => s.selection);
+  const draft = useTraceStore((s) => s.draft);
+  const wallKind = useTraceStore((s) => s.wallKind);
+  const tool = useTraceStore((s) => s.tool);
+  const store = useTraceStore.getState();
+
+  if (tool === 'wall' || selection?.kind === 'wall') {
+    return (
+      <VStack gap={2}>
+        <h3 className="np-panel-title">{selection?.kind === 'wall' ? '选中的墙' : '新画的墙'}</h3>
+        <SegmentedControl label="墙体类型" value={wallKind} onChange={(v) => store.setWallKind(v as WallKind)} size="sm" layout="fill">
+          <SegmentedControlItem value="bearing" label="承重" />
+          <SegmentedControlItem value="exterior" label="外墙" />
+          <SegmentedControlItem value="partition" label="非承重" />
+          <SegmentedControlItem value="low" label="矮墙" />
+        </SegmentedControl>
+        {selection?.kind === 'wall' && <Button label="删除这段墙" variant="ghost" size="sm" onClick={() => store.removeSelected()} />}
+      </VStack>
+    );
+  }
+  if (selection?.kind === 'room') {
+    const room = draft.rooms.find((r) => r.id === selection.id);
+    if (!room) return null;
+    return (
+      <VStack gap={2}>
+        <h3 className="np-panel-title">选中的房间</h3>
+        <TextInput
+          label="房间名"
+          value={room.name}
+          onChange={(v) => store.patch((d) => ({...d, rooms: d.rooms.map((r) => (r.id === room.id ? {...r, name: v} : r))}))}
+        />
+        <Button label="删除这个房间" variant="ghost" size="sm" onClick={() => store.removeSelected()} />
+      </VStack>
+    );
+  }
+  if (selection?.kind === 'opening') {
+    const o = draft.openings.find((x) => x.id === selection.id);
+    if (!o) return null;
+    return (
+      <VStack gap={2}>
+        <h3 className="np-panel-title">选中的{OPENING_LABEL[o.kind]}</h3>
+        {!o.wallId && <p className="np-hint">这个门窗没贴到墙上，生成户型时会单独保留。</p>}
+        <Button label="删除" variant="ghost" size="sm" onClick={() => store.removeSelected()} />
+      </VStack>
+    );
+  }
+  return null;
+}
+
+function ReviewList() {
+  const draft = useTraceStore((s) => s.draft);
+  const store = useTraceStore.getState();
+  const items = [
+    ...draft.walls.filter(needsReview).map((x) => ({kind: 'wall' as const, id: x.id, name: '墙', c: x.confidence})),
+    ...draft.openings.filter(needsReview).map((x) => ({kind: 'opening' as const, id: x.id, name: OPENING_LABEL[x.kind], c: x.confidence})),
+    ...draft.rooms.filter(needsReview).map((x) => ({kind: 'room' as const, id: x.id, name: x.name, c: x.confidence})),
+  ];
+  return (
+    <VStack gap={1}>
+      <HStack justify="between" align="center">
+        <h3 className="np-panel-title" style={{margin: 0}}>需要确认（{items.length}）</h3>
+        <Button label="全部保留" variant="ghost" size="sm" onClick={() => store.confirmAll()} />
+      </HStack>
+      <div>
+        {items.slice(0, 12).map((it) => (
+          <div key={it.id} className="tr-review-row">
+            <button type="button" className="tr-review-name" onClick={() => {
+              store.setTool('select');
+              store.select({kind: it.kind, id: it.id});
+            }}>
+              {KIND_LABEL[it.kind]} · {it.name}
+            </button>
+            <span className="tr-review-conf">{Math.round((it.c ?? 0) * 100)}%</span>
+            <Button label="保留" variant="secondary" size="sm" onClick={() => store.confirm(it.kind, it.id)} />
+            <Button label="删除" variant="ghost" size="sm" onClick={() => {
+              store.select({kind: it.kind, id: it.id});
+              store.removeSelected();
+            }} />
+          </div>
+        ))}
+      </div>
+      {items.length > 12 && <p className="np-hint">还有 {items.length - 12} 项，可以在图上点选。</p>}
+    </VStack>
+  );
+}
+
+function Calibration() {
+  const calib = useTraceStore((s) => s.calib);
+  const calibMm = useTraceStore((s) => s.calibMm);
+  const {mmPerPixel, source} = useScale();
+  const store = useTraceStore.getState();
+  return (
+    <VStack gap={2}>
+      <h3 className="np-panel-title">标定尺寸</h3>
+      <TextInput
+        label="这段的实际长度（mm）"
+        description={calib.length === 2 ? '已在图上选好两点' : '用「标定」工具在图上点两下'}
+        value={calibMm}
+        onChange={(v) => store.setCalibMm(v.replace(/[^\d.]/g, ''))}
+        placeholder="例如 3600"
+      />
+      {calib.length < 2 && (
+        <Button label="去图上选两点" variant="secondary" size="sm" onClick={() => store.setTool('calibrate')} />
+      )}
+      {mmPerPixel && (
+        <p className="np-hint">
+          {source === 'manual' ? '按你标定的长度' : '按 AI 读到的尺寸标注'}：1 像素 ≈ {mmPerPixel.toFixed(1)} mm
+        </p>
+      )}
+    </VStack>
   );
 }
