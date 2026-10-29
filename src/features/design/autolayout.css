@@ -1,0 +1,4 @@
+.np-autolayout { display: flex; flex-direction: column; gap: 10px; }
+.np-autolayout h4 { margin: 0 0 4px; font-size: 13px; font-weight: 600; color: var(--np-ink); }
+.np-autolayout-list { margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.6; color: var(--np-ink); }
+.np-autolayout-list--warn { color: var(--np-warn); }

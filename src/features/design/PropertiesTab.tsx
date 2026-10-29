@@ -14,6 +14,8 @@ import {IconTrash} from '../../lib/icons';
 // 编辑表单选中东西后才需要，单独拆包
 const FurnitureEditor = lazy(() => import('./Editors').then((m) => ({default: m.FurnitureEditor})));
 const RoomEditor = lazy(() => import('./Editors').then((m) => ({default: m.RoomEditor})));
+// AI 布置带着提示词和摆放计算，选中房间才加载
+const AutoLayout = lazy(() => import('./AutoLayout'));
 const loading = <div className="np-loading" style={{height: 120}}>加载中…</div>;
 
 const SHORTCUTS: [string, string][] = [
@@ -61,6 +63,10 @@ export function PropertiesTab() {
             {MATERIALS[room.material].name} · ¥{priceOf(plan, room.material)}/㎡
           </dd>
         </dl>
+        <Suspense fallback={loading}>
+          {/* 换房间时重建，上一个房间的需求和结果不会带过来 */}
+          <AutoLayout key={room.id} room={room} />
+        </Suspense>
         <Suspense fallback={loading}>
           <RoomEditor room={room} />
         </Suspense>
