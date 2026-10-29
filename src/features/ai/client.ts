@@ -54,8 +54,34 @@ async function completeOpenAI(s: AiSettings, req: AiRequest): Promise<string> {
     }),
   });
   if (!res.ok) throw new AiError(await errorText(res), res.status);
-  const json = (await res.json()) as {choices?: {message?: {content?: string}}[]};
-  return json.choices?.[0]?.message?.content ?? '';
+  const json = (await res.json()) as {
+    choices?: {finish_reason?: string; message?: {content?: unknown; reasoning_content?: string; reasoning?: string}}[];
+  };
+  const choice = json.choices?.[0];
+  const text = partsText(choice?.message?.content);
+  if (!text.trim()) {
+    throw emptyReply(choice?.finish_reason === 'length', Boolean(choice?.message?.reasoning_content || choice?.message?.reasoning));
+  }
+  return text;
+}
+
+/** content 一般是字符串；部分网关返回分段数组 [{type: 'text', text}]，拼起来 */
+function partsText(content: unknown): string {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  return content.map((c: {text?: unknown} | string) => (typeof c === 'string' ? c : typeof c?.text === 'string' ? c.text : '')).join('');
+}
+
+/**
+ * 模型没给出正式回复。最常见的是带深度思考的模型：思考把输出上限用完了，正式回复是空的。
+ * 不说清楚的话，后面解析 JSON 只会报一句看不懂的英文。
+ */
+function emptyReply(outOfTokens: boolean, thought: boolean): AiError {
+  if (outOfTokens) {
+    return new AiError('模型用完了输出上限也没给出回复，多半是深度思考把额度占满了。换一个不带深度思考的模型，或者在接口那边关掉深度思考再试。');
+  }
+  if (thought) return new AiError('模型只返回了思考过程，没有给出正式回复。换一个不带深度思考的模型再试。');
+  return new AiError('模型返回了空回复。检查模型名是否正确，或者换一个模型再试。');
 }
 
 async function completeAnthropic(s: AiSettings, req: AiRequest): Promise<string> {
@@ -84,8 +110,11 @@ async function completeAnthropic(s: AiSettings, req: AiRequest): Promise<string>
     }),
   });
   if (!res.ok) throw new AiError(await errorText(res), res.status);
-  const json = (await res.json()) as {content?: {type: string; text?: string}[]};
-  return (json.content ?? []).filter((c) => c.type === 'text').map((c) => c.text ?? '').join('');
+  const json = (await res.json()) as {content?: {type: string; text?: string}[]; stop_reason?: string};
+  const blocks = json.content ?? [];
+  const text = blocks.filter((c) => c.type === 'text').map((c) => c.text ?? '').join('');
+  if (!text.trim()) throw emptyReply(json.stop_reason === 'max_tokens', blocks.some((c) => c.type === 'thinking'));
+  return text;
 }
 
 async function errorText(res: Response) {
@@ -99,7 +128,26 @@ async function errorText(res: Response) {
 
 /** 从模型回复里取出第一段 JSON（兼容包在 ```json 代码块里的情况） */
 export function extractJson<T>(text: string): T {
-  const fenced = /```(?:json)?\s*([\s\S]*?)```/.exec(text);
-  const raw = fenced?.[1] ?? text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1);
-  return JSON.parse(raw) as T;
+  const raw = jsonCandidate(text);
+  if (raw === null) {
+    const said = text.trim().replace(/\s+/g, ' ');
+    if (!said) throw emptyReply(false, false);
+    throw new AiError(`模型没有按要求返回 JSON，它的回复是：「${said.length > 60 ? `${said.slice(0, 60)}…` : said}」。确认这个模型支持图片输入，或者换一个模型再试。`);
+  }
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    throw new AiError('模型返回的 JSON 不完整，可能是回复太长被截断了。换一张更清晰、更简单的户型图，或者换一个模型再试。');
+  }
+}
+
+/** 回复里像 JSON 的那一段；一个 { 都没有时返回 null */
+function jsonCandidate(text: string): string | null {
+  const fenced = /```(?:json)?\s*([\s\S]*?)```/.exec(text)?.[1];
+  if (fenced?.includes('{')) return fenced;
+  const start = text.indexOf('{');
+  if (start < 0) return null;
+  const end = text.lastIndexOf('}');
+  // 没有收尾的 }：多半是被截断了，交给 JSON.parse 报错
+  return end > start ? text.slice(start, end + 1) : text.slice(start);
 }
