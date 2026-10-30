@@ -52,6 +52,8 @@ type CamSeg =
 export interface Timeline {
   duration: number;
   chapters: Chapter[];
+  /** 开场：交房时已有的墙从地面立起来 */
+  rise: Map<string, Track>;
   demolish: Map<string, Track>;
   build: Map<string, Track>;
   /** 墙面从水泥灰刷成乳胶漆 */
@@ -62,12 +64,41 @@ export interface Timeline {
   camera: CamSeg[];
   /** 鸟瞰时绕着转的中心和距离 */
   orbit: {cx: number; cz: number; rh: number; h: number};
+  /** 拆墙、砌墙时镜头推近到施工的地方 */
+  focus: Focus[];
+  /** 施工从哪里开始（入户门，m）：立墙、刷墙、铺地都从这里一波波传开 */
+  origin: Vec2;
+  /** 离 origin 最远的墙有多远（m） */
+  reach: number;
 }
+
+/** 一段时间里镜头推近：中心移到 c（m），距离乘 k，前后各 ramp 秒过渡 */
+export interface Focus {
+  start: number;
+  end: number;
+  c: Vec2;
+  k: number;
+}
+const RAMP = 1.1;
 
 const FOV = 50;
 const PITCH = -0.06;
 export const easeInOut = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
 const smooth = (t: number) => t * t * (3 - 2 * t);
+
+/** 墙离 origin 的距离（m），取墙上最近的点 */
+function wallDist(w: Plan['walls'][number], o: Vec2): number {
+  const a: Vec2 = [w.a[0] / 1000, w.a[1] / 1000];
+  const b: Vec2 = [w.b[0] / 1000, w.b[1] / 1000];
+  const dx = b[0] - a[0];
+  const dz = b[1] - a[1];
+  const l2 = dx * dx + dz * dz || 1;
+  const k = Math.max(0, Math.min(1, ((o[0] - a[0]) * dx + (o[1] - a[1]) * dz) / l2));
+  return Math.hypot(a[0] + dx * k - o[0], a[1] + dz * k - o[1]);
+}
+
+/** 按离 origin 的远近排 */
+const byDist = <T>(items: T[], dist: (x: T) => number) => [...items].sort((a, b) => dist(a) - dist(b));
 
 /** 一组元素依次出场：间隔随数量收紧，整组总时长有上限 */
 function stagger(ids: string[], at: number, each: number, maxGap: number, total: number): {tracks: Map<string, Track>; end: number} {
@@ -132,18 +163,41 @@ export function buildTimeline(plan: Plan): Timeline {
     t += dur;
   };
 
-  // 1 毛坯
+  // 漫游路线先算出来：入户门是施工的起点，家具按路线经过房间的顺序进场
+  const route = planRoute(plan);
+  const origin = route.start;
+  const reach = Math.max(1, ...plan.walls.map((w) => Math.max(wallDist({...w, b: w.a}, origin), wallDist({...w, a: w.b}, origin))));
+
+  // 1 毛坯：交房时的墙从入户门开始一波波立起来
   const rooms = plan.rooms.filter((r) => r.counted !== false);
   const area = rooms.reduce((s, r) => s + roomArea(r), 0);
-  chapter('raw', '毛坯', '交房时的样子', rooms.length ? `${area.toFixed(1)} ㎡ · ${rooms.length} 个房间` : '毛坯', 3.2);
+  const rise = new Map<string, Track>();
+  for (const w of plan.walls) if (!w.added) rise.set(w.id, {start: 0.15 + (wallDist(w, origin) / reach) * 0.9, dur: 0.7});
+  chapter('raw', '毛坯', '交房时的样子', rooms.length ? `${area.toFixed(1)} ㎡ · ${rooms.length} 个房间` : '毛坯', 3.6);
 
-  // 2 拆墙：先闪一下红，再沉下去
+  // 拆墙、砌墙时镜头推近到这几面墙：中心取墙的中点，距离按墙的范围定
+  const focus: Focus[] = [];
+  const focusOn = (ids: string[], from: number, to: number): Focus => {
+    const ws = plan.walls.filter((w) => ids.includes(w.id));
+    return focusPts(ws.flatMap((w) => [w.a, w.b]), from, to);
+  };
+  const focusPts = (pts: Vec2[], from: number, to: number): Focus => {
+    const xs = pts.map((p) => p[0]);
+    const zs = pts.map((p) => p[1]);
+    const c: Vec2 = [(Math.min(...xs) + Math.max(...xs)) / 2000, (Math.min(...zs) + Math.max(...zs)) / 2000];
+    const span = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...zs) - Math.min(...zs)) / 1000;
+    return {start: from + 0.2, end: to - 0.3, c, k: Math.min(0.9, Math.max(0.42, (span + 4) / (radius * 2)))};
+  };
+
+  // 2 拆墙
   const wallIds = new Set(plan.walls.map((w) => w.id));
   const gone = plan.demolished.filter((id) => wallIds.has(id));
   let demolish = new Map<string, Track>();
   if (gone.length) {
-    const s = stagger(gone, t + 0.5, 1.2, 0.45, 3);
+    // 标红、从上往下一块块砸落、清运，一面墙 2.2 秒
+    const s = stagger(byDist(gone, (id) => wallDist(plan.walls.find((w) => w.id === id)!, origin)), t + 0.4, 2.2, 0.4, 2.5);
     demolish = s.tracks;
+    focus.push(focusOn(gone, t, s.end));
     chapter('demolish', '拆墙', '拆除非承重墙', `共 ${stats.demolishedM.toFixed(1)} 米`, s.end - t + 0.5);
   }
 
@@ -151,22 +205,35 @@ export function buildTimeline(plan: Plan): Timeline {
   const added = plan.walls.filter((w) => w.added && !plan.demolished.includes(w.id)).map((w) => w.id);
   let build = new Map<string, Track>();
   if (added.length) {
-    const s = stagger(added, t + 0.5, 1.1, 0.45, 3);
+    // 一皮一皮往上砌，一面墙 2 秒
+    const s = stagger(byDist(added, (id) => wallDist(plan.walls.find((w) => w.id === id)!, origin)), t + 0.4, 2, 0.45, 2.5);
     build = s.tracks;
+    focus.push(focusOn(added, t, s.end));
     chapter('build', '砌墙', '新砌墙体', `共 ${stats.addedM.toFixed(1)} 米`, s.end - t + 0.5);
   }
 
-  // 4 铺地刷墙
-  const paint: Track = {start: t + 0.3, dur: 1.6};
-  const floorIds = plan.rooms.map((r) => r.id);
-  const fl = stagger(floorIds, t + 0.5, 0.9, 0.35, 3);
+  // 4 刷墙铺地：刷墙从入户门附近传开，地面从近到远一个房间一个房间铺
+  const paint: Track = {start: t + 0.3, dur: 2.6};
+  const roomDist = (r: Plan['rooms'][number]) => {
+    const c = r.poly.reduce((a, p) => [a[0] + p[0] / r.poly.length, a[1] + p[1] / r.poly.length], [0, 0]);
+    return Math.hypot(c[0] / 1000 - origin[0], c[1] / 1000 - origin[1]);
+  };
+  const floorIds = byDist(plan.rooms, roomDist).map((r) => r.id);
+  const fl = stagger(floorIds, t + 0.6, 1.7, 0.45, 3.6);
+  // 铺最大的房间（一般是客厅）时推近，看得清一块块砖
+  const big = [...plan.rooms].sort((a, b2) => roomArea(b2) - roomArea(a))[0];
+  const bigTrack = big && fl.tracks.get(big.id);
+  if (big && bigTrack) focus.push(focusPts(big.poly, bigTrack.start - 0.4, bigTrack.start + bigTrack.dur + 0.5));
   const matNames = [...new Set(plan.rooms.map((r) => MATERIALS[r.material]?.name).filter(Boolean))];
   chapter('paint', '铺地', '铺地面、刷墙', matNames.slice(0, 3).join(' · ') || '刷墙', Math.max(paint.start + paint.dur, fl.end) - t + 0.5);
 
-  // 5 家具：按房间依次落位，大件先进
+  // 5 家具：按漫游路线经过房间的顺序落位，同一房间大件先进
+  const visit = route.legs.map((l) => l.to.room.id);
   const roomIndex = (x: number, y: number) => {
-    const i = plan.rooms.findIndex((r) => pointInPolygon([x, y], r.poly));
-    return i < 0 ? plan.rooms.length : i;
+    const r = plan.rooms.find((r2) => pointInPolygon([x, y], r2.poly));
+    if (!r) return plan.rooms.length + visit.length;
+    const i = visit.indexOf(r.id);
+    return i < 0 ? visit.length + plan.rooms.indexOf(r) : i;
   };
   const order = [...plan.furniture]
     .map((f) => ({f, room: roomIndex(f.cx, f.cy)}))
@@ -174,7 +241,7 @@ export function buildTimeline(plan: Plan): Timeline {
     .map((x) => x.f.id);
   let furniture = new Map<string, Track>();
   if (order.length) {
-    const s = stagger(order, t + 0.4, 0.75, 0.16, 5);
+    const s = stagger(order, t + 0.4, 0.8, 0.16, 5);
     furniture = s.tracks;
     chapter('furnish', '家具', '家具进场', `${order.length} 件`, s.end - t + 0.7);
   }
@@ -187,7 +254,6 @@ export function buildTimeline(plan: Plan): Timeline {
   };
 
   // 6 漫游：飞进入户门，按路线逐个房间走，停下来左右看看
-  const route = planRoute(plan);
   const walkStart = t;
   const first = route.legs[0];
   const startYaw = first && first.path.length > 1 ? yawAlong(first.path, pathLength(first.path), 0) : route.startYaw;
@@ -240,7 +306,7 @@ export function buildTimeline(plan: Plan): Timeline {
   t += 3;
   chapters.push({id: 'done', label: '完成', title: plan.name, sub: '改造完成', start: done, end: t});
 
-  return {duration: t, chapters, demolish, build, paint, floors: fl.tracks, furniture, route, camera, orbit};
+  return {duration: t, focus, chapters, rise, demolish, build, paint, floors: fl.tracks, furniture, route, camera, orbit, origin, reach};
 }
 
 
@@ -252,8 +318,20 @@ export function cameraAt(tl: Timeline, time: number): CameraPose {
   switch (seg.kind) {
     case 'orbit': {
       const az = seg.az0 + (seg.az1 - seg.az0) * u;
-      const k = seg.k0 + (seg.k1 - seg.k0) * smooth(u);
-      const {cx, cz, rh, h} = tl.orbit;
+      let k = seg.k0 + (seg.k1 - seg.k0) * smooth(u);
+      let {cx, cz} = tl.orbit;
+      const {rh, h} = tl.orbit;
+      // 施工时推近：前后各 RAMP 秒平滑过渡
+      // 两段推近挨得近时依次叠加，中心从上一处平移到下一处；距离不小于最近的那一段
+      let kf = 1;
+      for (const f of tl.focus) {
+        const w = smooth(Math.max(0, Math.min(1, (t - f.start + RAMP) / RAMP, (f.end + RAMP - t) / RAMP)));
+        if (w <= 0) continue;
+        cx += (f.c[0] - cx) * w;
+        cz += (f.c[1] - cz) * w;
+        kf *= 1 + (f.k - 1) * w;
+      }
+      if (tl.focus.length) k *= Math.max(kf, Math.min(...tl.focus.map((f) => f.k)));
       const pos = new THREE.Vector3(cx + Math.sin(az) * rh * k, h * k, cz + Math.cos(az) * rh * k);
       return {pos: [pos.x, pos.y, pos.z], quat: lookQuat(pos, new THREE.Vector3(cx, 0, cz)), fov: FOV, look: [cx, 0, cz]};
     }
