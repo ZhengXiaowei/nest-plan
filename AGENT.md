@@ -46,7 +46,7 @@ src/
     plan2d/                      SVG 平面图画布（按图层拆分 + memo；缩放平移直接改 viewBox）
     view3d/                      3D 视图、家具模型（models.ts 最大，1400+ 行）、第一人称漫游 walk.ts
     design/                      设计页：家具库、属性、房间预算、AI 助手、AI 布置面板 AutoLayout.tsx、菜单、方案导入导出 planFiles.ts
-    trace/                       户型还原：草稿（像素坐标）、描图画布、标定、traceStore、识别结果规整 tidyWalls
+    trace/                       户型还原：框房间（boxes 方框→墙、imageScan 看图、boxStore、BoxCanvas/BoxPanel，默认流程）；精修（草稿 Draft、描图画布、标定、traceStore、识别结果规整 tidyWalls）
     ai/                          AI 设置（含深度思考开关）、最小客户端（OpenAI 兼容 / Anthropic）、户型识别 recognize.ts、
                                  AI 改方案 planAgent.ts（助手页签）、AI 一键布置 layout.ts（属性面板）
     check/                       居住体检面板（右侧「体检」页签）、平面图问题标注、Web Worker 计算
@@ -62,7 +62,8 @@ openspec/                        openspec 规格（init --tools none）；change
 
 - **方案 `Plan`**（`model/types.ts`）：walls / openings / rooms / furniture / demolished（拆掉的墙 id）/ measures / prices / site（城市经纬度 + 北向角）。`version: 1`，旧存档走 `normalizePlan` 补字段。
 - **撤销**：改动前 `checkpoint()`，拖拽中用 `patch()`（不记历史），一次性改动用 `commit()`。历史上限 100。
-- **还原流程**：图片 → （可选）AI 识别返回像素坐标 JSON → 草稿 `Draft`（像素）→ 校对（置信度 < 0.6 高亮）→ 标定（两点 + 实长，或尺寸标注中位数自动估）→ 换算毫米生成 `Plan`。
+- **还原流程**：默认「框房间」：图片 → 每个房间一个方框（拖框 / 双击自动框 / AI 帮框）→ 墙由方框现算，按图猜承重墙和门窗、用户点墙改 → 套内面积（或量一面墙、或 AI 读到的尺寸标注）定比例 → `boxesToDraft` 转成草稿 → `draftToPlan`。框房间的状态只存方框和「位置点」（门窗、墙类型），墙永远现算，别把墙 id 存进标记里。按图猜的墙类型带 `Wall.unverified`，设计页拆墙时提醒核实。
+- **精修**（原描墙流程）：图片 → （可选）AI 识别返回像素坐标 JSON → 草稿 `Draft`（像素）→ 校对（置信度 < 0.6 高亮）→ 标定（两点 + 实长，或尺寸标注中位数自动估）→ 换算毫米生成 `Plan`。框房间的结果可以一键转成精修草稿。
 - **日照**：`sunStore` 按墙/门窗/房间/位置/日期算 key，变了才防抖 120 ms 丢给 `sun.worker.ts`；家具挪动不重算。网格 150 mm、每 10 分钟一条光线。
 - **回放**：时间线是方案的纯函数，播放和逐帧导出都按 t 取状态，不用 GSAP；场景一次搭好，每帧只改可见性/高度/颜色/位置，不走 React。铺地和刷墙在着色器里做（`onBeforeCompile`，按材质各自的 uniform），伪随机一律用 t 和序号的哈希，别用 `Math.random`，否则导出逐帧会抖。
 - **AI 布置**：`roomInfo`（墙面编号、方位、门窗和开口、禁放区）→ 提示词让 AI 出 JSON 清单 → `placeItems`（换算坐标，沿墙滑开避让）→ `checkLayout`（出界、挡窗，其余交给居住体检 `runCheckup`）→ 有问题交回 AI 修正一次 → `withRoomFurniture` 一次 `commit` 写回。家具局部 -y 是靠背 / 床头，上右下左墙对应 0 / 90 / 180 / 270°。

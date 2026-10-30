@@ -661,7 +661,9 @@ export function PlanCanvas() {
         const w = store.plan.walls.find((x) => x.id === d.wallId);
         const result = store.toggleDemolish(d.wallId);
         const body = result === 'demolished' && w ? `已标记拆除 ${fmtMm(wallLength(w))} mm 墙体，可撤销` : DEMOLISH_TOAST[result];
-        toast(body, result === 'bearing' || result === 'exterior' ? 'error' : 'info');
+        // 墙类型是按户型图猜的：照常拆，提醒先核实
+        if (result === 'demolished' && w?.unverified) toast(`${body}。这面墙是不是承重墙是按户型图猜的，动工前找物业要结构图核实`, 'info', 5000);
+        else toast(body, result === 'bearing' || result === 'exterior' ? 'error' : 'info');
       }
       return;
     }
