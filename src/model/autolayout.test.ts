@@ -10,6 +10,7 @@ import {
   type RoomInfo,
 } from './autolayout';
 import {createSamplePlan} from './samplePlan';
+import {runCheckup} from './checkup';
 import type {Furniture} from './types';
 
 const plan = createSamplePlan();
@@ -218,6 +219,15 @@ describe('摆放', () => {
   });
 });
 
+describe('拆墙以后', () => {
+  it('主卧门两边的墙拆了，墙面上不再有主卧门', () => {
+    const info = roomInfo({...plan, demolished: ['w42', 'w44']}, 'master')!;
+    const names = info.faces.flatMap((f) => f.openings.map((o) => o.name));
+    expect(names).not.toContain('主卧门');
+    expect(info.keepOuts.map((k) => k.label).join()).not.toMatch(/主卧门/);
+  });
+});
+
 describe('布局检查', () => {
   it('合理的主卧布置：床、两侧床头柜、避开门的衣柜，没有问题', () => {
     const info = master();
@@ -228,16 +238,16 @@ describe('布局检查', () => {
       {id: 'wd', item: '衣柜', wall: 'C', align: 'end'},
     ]);
     expect(skipped).toEqual([]);
-    expect(checkLayout(info, placed.map((p) => p.f))).toEqual([]);
+    expect(checkLayout(plan, info, placed.map((p) => p.f))).toEqual([]);
   });
 
   it('两件压在一起', () => {
-    const issues = checkLayout(master(), [furn('a', 'desk', '书桌', 8000, 1000, 1200, 600), furn('b', 'bookshelf', '书架', 8300, 1100, 800, 300)]);
+    const issues = checkLayout(plan, master(), [furn('a', 'desk', '书桌', 8000, 1000, 1200, 600), furn('b', 'bookshelf', '书架', 8300, 1100, 800, 300)]);
     expect(issues.filter((i) => i.kind === 'overlap')).toEqual([expect.objectContaining({ids: ['a', 'b']})]);
   });
 
   it('地毯、塞进桌下的椅子、电视柜上方的电视不算压着', () => {
-    const issues = checkLayout(master(), [
+    const issues = checkLayout(plan, master(), [
       furn('rug', 'rug', '地毯', 8400, 1600, 2400, 1700),
       furn('desk', 'desk', '书桌', 8400, 1600, 1200, 600),
       furn('chair', 'chair', '椅子', 8400, 1900, 450, 480, 180),
@@ -248,42 +258,67 @@ describe('布局检查', () => {
   });
 
   it('伸出房间', () => {
-    const issues = checkLayout(master(), [furn('a', 'wardrobe', '衣柜', 6700, 1000, 2000, 600, 90)]);
+    const issues = checkLayout(plan, master(), [furn('a', 'wardrobe', '衣柜', 6700, 1000, 2000, 600, 90)]);
     expect(issues).toEqual(expect.arrayContaining([expect.objectContaining({kind: 'outside', ids: ['a']})]));
   });
 
   it('挡住开门的范围', () => {
-    const issues = checkLayout(master(), [furn('a', 'bookshelf', '书架', 7000, 3200, 800, 300, 180)]);
+    const issues = checkLayout(plan, master(), [furn('a', 'bookshelf', '书架', 7000, 3200, 800, 300, 180)]);
     expect(issues).toEqual(expect.arrayContaining([expect.objectContaining({kind: 'door', message: expect.stringMatching(/主卧门/)})]));
   });
 
   it('衣柜挡飘窗要报，同一位置放床不报', () => {
-    const wd = checkLayout(master(), [furn('a', 'wardrobe', '衣柜', 10270 - 300, 1700, 2000, 600, 90)]);
+    const wd = checkLayout(plan, master(), [furn('a', 'wardrobe', '衣柜', 10270 - 300, 1700, 2000, 600, 90)]);
     expect(wd).toEqual(expect.arrayContaining([expect.objectContaining({kind: 'window'})]));
-    const bed = checkLayout(master(), [furn('b', 'bed', '单人床', 10270 - 1000, 1700, 1200, 2000, 90)]);
+    const bed = checkLayout(plan, master(), [furn('b', 'bed', '单人床', 10270 - 1000, 1700, 1200, 2000, 90)]);
     expect(bed.filter((i) => i.kind === 'window')).toEqual([]);
   });
 
   it('衣柜前留空不够', () => {
-    const issues = checkLayout(master(), [
+    const issues = checkLayout(plan, master(), [
       furn('wd', 'wardrobe', '衣柜', 9270, 3070, 2000, 600, 180),
       furn('x', 'armchair', '单人沙发', 9270, 2400, 850, 850),
     ]);
-    expect(issues).toEqual(expect.arrayContaining([expect.objectContaining({kind: 'clearance', ids: ['wd'], message: expect.stringMatching(/600/)})]));
+    const wd = issues.find((i) => i.kind === 'clearance' && i.ids.includes('wd'));
+    expect(wd?.advice).toMatch(/600/);
   });
 
   it('床尾贴墙、双人床一侧贴墙都要报', () => {
     // 1.8m 床竖着放在左上角：床尾离下墙不到 500，左侧贴着左墙
-    const issues = checkLayout(master(), [furn('bed', 'bed', '双人床 1.8m', 6600 + 900, 3370 - 1000 - 300, 1800, 2000)]);
+    const issues = checkLayout(plan, master(), [furn('bed', 'bed', '双人床 1.8m', 6600 + 900, 3370 - 1000 - 300, 1800, 2000)]);
     const msgs = issues.filter((i) => i.kind === 'clearance').map((i) => i.message);
     expect(msgs.join('\n')).toMatch(/床尾/);
-    expect(msgs.join('\n')).toMatch(/床边/);
+    expect(msgs.join('\n')).toMatch(/一侧贴墙/);
   });
 
   it('单人床一侧贴墙没关系', () => {
     // 放在右上角，右侧贴墙，左侧留空够
-    const issues = checkLayout(master(), [furn('bed', 'bed', '单人床', 10270 - 600, 1000, 1200, 2000)]);
+    const issues = checkLayout(plan, master(), [furn('bed', 'bed', '单人床', 10270 - 600, 1000, 1200, 2000)]);
     expect(issues).toEqual([]);
+  });
+});
+
+describe('和居住体检同一套规则', () => {
+  // 主卧下墙内侧 y = 3370，书桌 / 书架背靠上墙（y = 0）摆，前面放一件单人沙发挡着
+  const trial = (front: Furniture, gap: number) => {
+    const blocker = furn('x', 'armchair', '单人沙发', front.cx, front.cy + front.d / 2 + gap + 425, 850, 850);
+    const items = [front, blocker];
+    const layout = checkLayout(plan, master(), items);
+    const check = runCheckup(withRoomFurniture(plan, 'master', items, false));
+    return {
+      layout: layout.some((i) => i.kind === 'clearance' && i.ids.includes(front.id)),
+      checkup: check.issues.some((i) => i.rule === 'front' && i.furniture.includes(front.id)),
+    };
+  };
+
+  it('书桌前 650 mm：两边结论一样', () => {
+    const r = trial(furn('desk', 'desk', '书桌', 8400, 300, 1200, 600), 650);
+    expect(r.layout).toBe(r.checkup);
+  });
+
+  it('书架前 480 mm：两边结论一样', () => {
+    const r = trial(furn('shelf', 'bookshelf', '书架', 8400, 150, 800, 300), 480);
+    expect(r.layout).toBe(r.checkup);
   });
 });
 

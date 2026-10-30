@@ -14,6 +14,7 @@ import {
   type RoomInfo,
 } from '../../model/autolayout';
 import {CATALOG} from '../../model/catalog';
+import {FRONT_NEED} from '../../model/checkup';
 import {roomArea} from '../../model/geometry';
 import {AiError, complete, extractJson} from './client';
 import type {AiSettings} from './settings';
@@ -35,6 +36,13 @@ export interface RoomLayoutResult {
   rounds: number;
 }
 
+const CATALOG_NAME: Record<string, string> = {wardrobe: '衣柜', dresser: '梳妆台', desk: '书桌', bookshelf: '书架', cabinet: '柜子'};
+
+/** 留空要求直接取居住体检的数值，AI 布置和体检用同一套标准 */
+const CLEARANCE = `- 留空：${['wardrobe', 'dresser', 'desk', 'bookshelf', 'cabinet']
+  .map((t) => `${CATALOG_NAME[t] ?? t}前 ${FRONT_NEED[t]!.need} mm`)
+  .join('，')}；床边和床尾留 500 mm，双人床两侧都要能下床；餐桌坐人的一边离墙 600 mm 以上；不要摆得太满。`;
+
 const SYSTEM = `你是室内设计师，给一个房间摆家具。只输出一个 JSON 对象，不要解释。
 你只决定放什么、靠哪面墙、怎么对齐；精确坐标由程序计算，程序也会尽量自动避开门口和窗。
 格式：{"note": "一两句中文设计说明", "items": [每件家具一项]}
@@ -47,7 +55,7 @@ const SYSTEM = `你是室内设计师，给一个房间摆家具。只输出一�
 要求：
 - 家具名只能用家具库里的，原样照抄。
 - 门扇开启的范围和门口要空出来；高过窗台的家具（衣柜、书架）不要挡窗。
-- 衣柜前留 600 mm，床尾和双人床两侧各留 500 mm 左右；不要摆得太满。
+${CLEARANCE}
 - 设计说明里用「图纸上方的墙」「靠窗」这类说法，不要说东南西北。`;
 
 const KIND_NAME: Record<LayoutRoomKind, string> = {bedroom: '卧室', living: '客厅', dining: '餐厅', study: '书房'};
@@ -136,7 +144,7 @@ export async function layoutRoom(
   const solve = (layout: Layout) => {
     const {placed, skipped} = placeItems(info, layout.items, kept);
     const furniture = placed.map((p) => p.f);
-    return {layout, furniture, skipped, issues: checkLayout(info, [...kept, ...furniture])};
+    return {layout, furniture, skipped, issues: checkLayout(plan, info, [...kept, ...furniture])};
   };
   const result = (s: ReturnType<typeof solve>, rounds: number): RoomLayoutResult => ({
     furniture: s.furniture,
@@ -149,7 +157,7 @@ export async function layoutRoom(
   const first = solve(await ask(context));
   if (!first.issues.length && !first.skipped.length) return result(first, 1);
 
-  const problems = [...first.issues.map((i) => i.message), ...first.skipped];
+  const problems = [...first.issues.map((i) => (i.advice ? `${i.message}（${i.advice}）` : i.message)), ...first.skipped];
   const repair = `${context}
 
 上一版布置：

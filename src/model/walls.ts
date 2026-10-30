@@ -17,16 +17,23 @@ export function activeWalls(plan: Plan): Wall[] {
 
 /**
  * 改造后还在的门窗：所在的墙被拆了，门窗也就没了。
- * 有的户型门窗压在整段墙上，有的门窗是墙上的缺口（两边墙断开），两种都算。
+ * 有的户型门窗压在整段墙上，有的门窗是墙上的缺口（两边墙断开）。
+ * 门窗的墙 = 压着门窗中点的墙，加上和门窗同方向、碰到门窗两端的墙；这些墙全拆了，门窗才算没了。
  */
 export function liveOpenings(plan: Plan): Opening[] {
   if (!plan.demolished.length) return plan.openings;
-  const gone = plan.walls.filter((w) => plan.demolished.includes(w.id));
-  const live = activeWalls(plan);
+  const gone = new Set(plan.demolished);
   return plan.openings.filter((o) => {
     const mid: Vec2 = [(o.a[0] + o.b[0]) / 2, (o.a[1] + o.b[1]) / 2];
-    const on = (w: Wall) => distToSegment(mid, w.a, w.b) <= w.thickness / 2 + 30;
-    return !gone.some(on) || live.some(on);
+    const ol = Math.hypot(o.b[0] - o.a[0], o.b[1] - o.a[1]) || 1;
+    const hosts = plan.walls.filter((w) => {
+      const tol = w.thickness / 2 + 30;
+      if (distToSegment(mid, w.a, w.b) <= tol) return true;
+      const wl = wallLength(w) || 1;
+      const cross = Math.abs((o.b[0] - o.a[0]) * (w.b[1] - w.a[1]) - (o.b[1] - o.a[1]) * (w.b[0] - w.a[0])) / (ol * wl);
+      return cross < 0.05 && (distToSegment(o.a, w.a, w.b) <= tol || distToSegment(o.b, w.a, w.b) <= tol);
+    });
+    return !hosts.length || hosts.some((w) => !gone.has(w.id));
   });
 }
 

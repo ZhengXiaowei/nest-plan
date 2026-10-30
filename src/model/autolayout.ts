@@ -7,8 +7,9 @@
 import type {Furniture, OpeningKind, Plan, Room, Vec2} from './types';
 import {CATALOG, FURNITURE_ELEVATION, FURNITURE_HEIGHT, type CatalogItem} from './catalog';
 import {furnitureHalfExtents, pointInPolygon, polygonCentroid} from './geometry';
-import {activeWalls, type Rect} from './walls';
+import {activeWalls, liveOpenings, type Rect} from './walls';
 import {uid} from '../lib/id';
+import {runCheckup, type RuleId, type Severity} from './checkup';
 
 /* ---------- 房间类型 ---------- */
 
@@ -143,7 +144,7 @@ export function roomInfo(plan: Plan, roomId: string): RoomInfo | null {
 
   // 门窗挂在哪面墙上
   for (const f of faces) {
-    for (const o of plan.openings) {
+    for (const o of liveOpenings(plan)) {
       const parallel = isH(f) ? Math.abs(o.a[1] - o.b[1]) < 1 : Math.abs(o.a[0] - o.b[0]) < 1;
       if (!parallel || Math.abs((isH(f) ? o.a[1] : o.a[0]) - lineOf(f)) > o.thickness / 2 + NEAR) continue;
       const from = Math.max(0, Math.min(alongOf(f, o.a), alongOf(f, o.b)));
@@ -223,17 +224,6 @@ const vrange = (type: string): [number, number] => {
 export function footprint(f: Furniture): Rect {
   const {hw, hh} = furnitureHalfExtents(f);
   return [f.cx - hw, f.cy - hh, f.cx + hw, f.cy + hh];
-}
-
-/** 能塞进桌子下面的椅子，和能塞椅子的桌子 */
-const TUCK = new Set(['chair', 'officechair', 'barstool']);
-const UNDER = new Set(['desk', 'table', 'roundtable', 'island', 'counter', 'dresser']);
-
-/** 两件家具叠在一起也没关系：地毯、桌下的椅子、高度不重叠（电视在电视柜上方） */
-function mayStack(a: Furniture, b: Furniture): boolean {
-  if (a.type === 'rug' || b.type === 'rug') return true;
-  if ((TUCK.has(a.type) && UNDER.has(b.type)) || (TUCK.has(b.type) && UNDER.has(a.type))) return true;
-  return overlap1(vrange(a.type), vrange(b.type)) <= 0;
 }
 
 /* ---------- 摆放 ---------- */
@@ -388,11 +378,14 @@ export function placeItems(
 
 /* ---------- 布局检查 ---------- */
 
-export type LayoutIssueKind = 'overlap' | 'outside' | 'door' | 'window' | 'clearance';
+export type LayoutIssueKind = 'overlap' | 'outside' | 'door' | 'window' | 'clearance' | 'path';
 
 export interface LayoutIssue {
   kind: LayoutIssueKind;
+  severity: Severity;
   message: string;
+  /** 怎么改的建议（交回 AI 修正时一起带上） */
+  advice?: string;
   /** 涉及的家具 id */
   ids: string[];
 }
@@ -408,84 +401,21 @@ function rectInside(r: Rect, poly: readonly Vec2[]): boolean {
   return pts.every((p) => pointInPolygon(p, poly));
 }
 
-/** 家具局部坐标里的矩形（x 沿宽、+y 朝正面）转成平面上的外接矩形；只处理 90° 的倍数 */
-function localToWorld(f: Furniture, [x0, y0, x1, y1]: Rect): Rect {
-  const c = Math.round(Math.cos(f.rot * RAD));
-  const s = Math.round(Math.sin(f.rot * RAD));
-  const pts = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]].map(([x, y]): Vec2 => [f.cx + x! * c - y! * s, f.cy + x! * s + y! * c]);
-  return [Math.min(...pts.map((p) => p[0])), Math.min(...pts.map((p) => p[1])), Math.max(...pts.map((p) => p[0])), Math.max(...pts.map((p) => p[1]))];
-}
+const KIND_OF_RULE: Record<RuleId, LayoutIssueKind> = {bed: 'clearance', front: 'clearance', table: 'clearance', door: 'door', overlap: 'overlap', path: 'path'};
 
-interface ClearRule {
-  /** 局部坐标里的留空区域 */
-  zones: Rect[];
-  /** all：每块都要空；any：至少一块空 */
-  mode: 'all' | 'any';
-  message: string;
-  /** 这些家具放进留空区也没关系 */
-  ignore?: Set<string>;
-}
-
-const front = (f: Furniture, depth: number): Rect => [-f.w / 2, f.d / 2, f.w / 2, f.d / 2 + depth];
-
-/** 各类家具需要的留空 */
-function clearRules(f: Furniture): ClearRule[] {
-  const q = `「${f.name}」`;
-  const simple = (depth: number, ignore?: Set<string>): ClearRule[] => [{zones: [front(f, depth)], mode: 'all', message: `${q}前留空不到 ${depth} mm`, ignore}];
-  switch (f.type) {
-    case 'wardrobe':
-      return simple(600);
-    case 'shoecab':
-    case 'bookshelf':
-    case 'cabinet':
-    case 'dresser':
-      return simple(500);
-    case 'desk':
-      return simple(600, TUCK);
-    case 'fridge':
-      return simple(700);
-    case 'table':
-      return [{zones: [front(f, 600), [-f.w / 2, -f.d / 2 - 600, f.w / 2, -f.d / 2]], mode: 'all', message: `${q}两侧留给餐椅的位置不到 600 mm`, ignore: TUCK}];
-    case 'bed': {
-      // 床边从床头往下 500 mm 开始算，避开床头柜
-      const sides: Rect[] = [
-        [-f.w / 2 - 450, -f.d / 2 + 500, -f.w / 2, f.d / 2],
-        [f.w / 2, -f.d / 2 + 500, f.w / 2 + 450, f.d / 2],
-      ];
-      const double = f.w >= 1350;
-      return [
-        {zones: [front(f, 500)], mode: 'all', message: `${q}床尾留空不到 500 mm`},
-        {zones: sides, mode: double ? 'all' : 'any', message: double ? `${q}床边留空不到 450 mm（双人床两侧都要能下床）` : `${q}两侧床边都不到 450 mm`},
-      ];
-    }
-    default:
-      return [];
-  }
-}
-
-/** 检查房间里的家具，返回问题清单（空数组表示没问题） */
-export function checkLayout(info: RoomInfo, furniture: readonly Furniture[]): LayoutIssue[] {
+/**
+ * 检查房间里的家具（含保留的），返回问题清单（空数组表示没问题）。
+ * 床边、柜前、餐桌留空，挡门，压着，通道都直接用居住体检（model/checkup）的规则，两边结论一致；
+ * 这里只补体检没有的两条：伸出房间、高家具挡窗。
+ */
+export function checkLayout(plan: Plan, info: RoomInfo, furniture: readonly Furniture[]): LayoutIssue[] {
   const issues: LayoutIssue[] = [];
   const poly = info.room.poly;
   const q = (f: Furniture) => `「${f.name}」`;
-  const prints = furniture.map(footprint);
 
-  for (let i = 0; i < furniture.length; i++) {
-    for (let j = i + 1; j < furniture.length; j++) {
-      const a = furniture[i]!;
-      const b = furniture[j]!;
-      if (!mayStack(a, b) && overlaps(prints[i]!, prints[j]!, EPS)) issues.push({kind: 'overlap', message: `${q(a)}和${q(b)}压在一起`, ids: [a.id, b.id]});
-    }
-  }
-
-  furniture.forEach((f, i) => {
-    const r = prints[i]!;
-    if (!rectInside(r, poly)) issues.push({kind: 'outside', message: `${q(f)}伸出了房间`, ids: [f.id]});
-
-    if (f.type !== 'rug' && vrange(f.type)[0] < 2000) {
-      for (const k of info.keepOuts) if (overlaps(r, k.rect, EPS)) issues.push({kind: 'door', message: `${q(f)}挡住了${k.label}`, ids: [f.id]});
-    }
-
+  for (const f of furniture) {
+    const r = footprint(f);
+    if (!rectInside(r, poly)) issues.push({kind: 'outside', severity: 'error', message: `${q(f)}伸出了房间`, ids: [f.id]});
     for (const face of info.faces) {
       // 家具贴着这面墙（离墙面不到 150 mm）
       const gap = face.side === 'top' ? r[1] - lineOf(face) : face.side === 'bottom' ? lineOf(face) - r[3] : face.side === 'left' ? r[0] - lineOf(face) : lineOf(face) - r[2];
@@ -493,23 +423,19 @@ export function checkLayout(info: RoomInfo, furniture: readonly Furniture[]): La
       const span = project(face, r);
       for (const o of face.openings) {
         if (o.kind !== 'window' || overlap1(vrange(f.type), [o.sill, o.head]) <= 0 || overlap1(span, [o.from, o.to]) <= EPS) continue;
-        issues.push({kind: 'window', message: `${q(f)}挡住了 ${face.id} 墙的${o.name}`, ids: [f.id]});
+        issues.push({kind: 'window', severity: 'warn', message: `${q(f)}挡住了 ${face.id} 墙的${o.name}`, ids: [f.id]});
       }
     }
+  }
 
-    if (f.rot % 90 !== 0) return;
-    for (const rule of clearRules(f)) {
-      const blocked = rule.zones.map((zone) => {
-        const z = localToWorld(f, zone);
-        if (!rectInside(z, poly)) return true;
-        return furniture.some(
-          (g, j) => g !== f && g.type !== 'rug' && !rule.ignore?.has(g.type) && vrange(g.type)[0] < 1800 && overlaps(prints[j]!, z, EPS),
-        );
-      });
-      const bad = rule.mode === 'all' ? blocked.some(Boolean) : blocked.every(Boolean);
-      if (bad) issues.push({kind: 'clearance', message: rule.message, ids: [f.id]});
-    }
-  });
+  // 体检：只报和这批家具有关的；通道问题只报布置前没有的
+  const ids = new Set(furniture.map((f) => f.id));
+  const before = new Set(runCheckup(withRoomFurniture(plan, info.room.id, [], false)).issues.map((i) => i.id));
+  for (const i of runCheckup(withRoomFurniture(plan, info.room.id, furniture, false)).issues) {
+    const mine = i.furniture.filter((id) => ids.has(id));
+    if (i.rule === 'path' ? before.has(i.id) : !mine.length) continue;
+    issues.push({kind: KIND_OF_RULE[i.rule], severity: i.severity, message: i.title, advice: i.detail, ids: mine});
+  }
   return issues;
 }
 

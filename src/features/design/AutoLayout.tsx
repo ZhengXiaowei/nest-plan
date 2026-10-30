@@ -106,7 +106,10 @@ export default function AutoLayout({room}: {room: Room}) {
             <h4>还有这些问题</h4>
             <ul className="np-autolayout-list np-autolayout-list--warn">
               {result.issues.map((i, k) => (
-                <li key={k}>{i.message}</li>
+                <li key={k}>
+                  {i.message}
+                  {i.advice && <small className="np-hint"> {i.advice}</small>}
+                </li>
               ))}
             </ul>
           </div>

@@ -1,6 +1,6 @@
 import {describe, expect, it} from 'vitest';
 import type {Furniture, Opening, Plan, Wall} from './types';
-import {activeWalls, pushOut, renovationStats, snapFurniture, snapMeasurePoint, wallPieces, wallRects} from './walls';
+import {activeWalls, liveOpenings, pushOut, renovationStats, snapFurniture, snapMeasurePoint, wallPieces, wallRects} from './walls';
 import {createSamplePlan} from './samplePlan';
 import {normalizePlan, usePlanStore} from '../store/planStore';
 
@@ -105,5 +105,36 @@ describe('墙角补齐', () => {
     expect(out[0]).toMatchObject({a: [-100, 0], b: [3000, 0]});
     expect(out[1]).toMatchObject({a: [0, -100], b: [0, 2000]});
     expect(out[2]).toMatchObject({a: [1500, 0], b: [1500, 2000]});
+  });
+});
+
+describe('拆墙后的门窗', () => {
+  const base = createSamplePlan();
+  const doorOf = (name: string) => base.openings.find((o) => o.name === name)!;
+
+  it('没拆墙时门窗都在', () => {
+    expect(liveOpenings(base)).toHaveLength(base.openings.length);
+  });
+
+  it('门洞两边的墙都拆了，门就没了；只拆一边门还在', () => {
+    // 主卧门是 w42 和 w44 之间的缺口
+    const both = liveOpenings({...base, demolished: ['w42', 'w44']});
+    expect(both).not.toContainEqual(doorOf('主卧门'));
+    // 主卫门一边挨着 w42，另一边的 w41 还在
+    expect(both).toContainEqual(doorOf('主卫门'));
+    const one = liveOpenings({...base, demolished: ['w44']});
+    expect(one).toContainEqual(doorOf('主卧门'));
+  });
+
+  it('转角处垂直的墙不算门的墙', () => {
+    // 拆一段只在门端点处垂直相交的墙，门不受影响
+    const d = doorOf('主卧门');
+    const perpendicular = base.walls.filter((w) => {
+      const horizontalDoor = Math.abs(d.a[1] - d.b[1]) < 1;
+      const horizontalWall = Math.abs(w.a[1] - w.b[1]) < 1;
+      return horizontalDoor !== horizontalWall && w.kind === 'partition';
+    });
+    const ids = perpendicular.map((w) => w.id);
+    expect(liveOpenings({...base, demolished: ids})).toContainEqual(d);
   });
 });

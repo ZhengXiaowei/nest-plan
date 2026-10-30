@@ -284,7 +284,7 @@ const hitName = (h: Obstacle | null) => (h ? h.name : '旁边的东西');
 /* ---------- 规则 ---------- */
 
 /** 柜门 / 操作面前需要的净距（mm），以及叫法 */
-const FRONT_NEED: Record<string, {need: number; what: string}> = {
+export const FRONT_NEED: Record<string, {need: number; what: string}> = {
   wardrobe: {need: 600, what: '开柜门、站着拿衣服'},
   shoecab: {need: 450, what: '开柜门、换鞋'},
   cabinet: {need: 500, what: '开柜门'},

@@ -67,6 +67,9 @@ describe('AI 布置房间', () => {
     expect(p).toMatch(/主卫门」（向外开/);
     expect(p).toMatch(/双人床 1\.8m 1800×2000/);
     expect(p).toMatch(/两口人，要梳妆台/);
+    // 留空要求和居住体检同一套数
+    expect(p).toMatch(/衣柜前 600 mm/);
+    expect(p).toMatch(/书桌前 700 mm/);
   });
 
   it('一轮通过：只请求一次，返回摆好的家具和设计说明', async () => {
