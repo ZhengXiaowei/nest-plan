@@ -105,6 +105,14 @@ function Player() {
   const seek = useCallback((t: number) => api.current?.seek(t), []);
   const onEnd = useCallback(() => setPlaying(false), []);
 
+  // 开发时给浏览器自动化用：按秒精确定位，检查各章节动画
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    const w = window as unknown as {__npReplay?: unknown};
+    w.__npReplay = {seek, timeline: tl};
+    return () => void delete w.__npReplay;
+  }, [seek, tl]);
+
   // 空格播放暂停，左右键快退快进 5 秒
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
