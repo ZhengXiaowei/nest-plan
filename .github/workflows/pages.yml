@@ -25,8 +25,8 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      # 站点在 /<仓库名>/ 下，路由是 hash，不用处理 404 回退
-      - run: npx vite build --base=/${{ github.event.repository.name }}/
+      # 资源用相对路径：在 github.io/<仓库名>/ 下和换成自定义域名都能用；路由是 hash，不用处理 404 回退
+      - run: npx vite build --base=./
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
