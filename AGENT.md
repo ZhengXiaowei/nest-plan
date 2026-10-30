@@ -7,7 +7,7 @@
 - **是什么**：纯前端的户型装修设计工具。上传户型图 → 还原成可编辑户型 → 2D 布置 + 3D 预览 / 漫游 → 「改造回放」动画（毛坯一步步变成完工，可导出视频）。
 - **给谁用**：想自己琢磨装修布局的普通住户；界面、文案全中文。
 - **来源**：受开源项目 [wy51ai/floorplan-3d](https://github.com/wy51ai/floorplan-3d)（MIT，单个 index.html）启发后重新设计、重写。示例户型、家具库尺寸配色、地面单价、3D 家具模型和地板贴图做法移植自原项目。
-- **阶段**：v0.1.0，未发版、无线上部署（CI 只构建 + 测试 + 报体积）。路线图见 `docs/plan.md`：阶段 0 骨架、1 还原、3 回放已完成；2 设计大部分完成；4 CAD 暂缓；5 AI 助手大部分完成（AI 改方案、单个房间一键布置已做，整屋一键设计未做）；6 一起选已完成。
+- **阶段**：v0.1.0，未发版。CI 构建 + 测试 + 报体积；main 有新提交由 `.github/workflows/pages.yml` 发布到 GitHub Pages（站点在 `/nest-plan/` 下，需要仓库 Settings → Pages 的 Source 选 GitHub Actions）。路线图见 `docs/plan.md`：阶段 0 骨架、1 还原、3 回放已完成；2 设计大部分完成；4 CAD 暂缓；5 AI 助手大部分完成（AI 改方案、单个房间一键布置已做，整屋一键设计未做）；6 一起选已完成。
 - **仓库**：`git@github.com:ZhengXiaowei/nest-plan.git`，主分支 `main`。
 
 ## 铁律
