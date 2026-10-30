@@ -55,8 +55,11 @@
 .bx-box:hover rect { fill-opacity: 0.16; }
 .bx-box.is-selected rect { fill-opacity: 0.2; stroke-width: 2.5; }
 .bx-box.is-quiet rect { fill-opacity: 0.05; stroke: none; cursor: inherit; }
-.bx-name { fill: var(--np-ink); font-weight: 650; text-anchor: middle; dominant-baseline: central; pointer-events: none; paint-order: stroke; stroke: #FFFFFFE6; stroke-width: 4px; }
-.bx-size { fill: var(--np-accent); font-weight: 600; text-anchor: middle; dominant-baseline: central; pointer-events: none; paint-order: stroke; stroke: #FFFFFFE6; stroke-width: 4px; font-variant-numeric: tabular-nums; }
+.bx-tag { pointer-events: none; }
+.bx-tag > rect { fill: var(--np-accent); }
+.bx-box.is-quiet .bx-tag > rect { fill: var(--np-ink); fill-opacity: 0.78; }
+.bx-name { fill: #FFFFFF; font-weight: 600; dominant-baseline: central; pointer-events: none; }
+.bx-size { fill: var(--np-accent); font-weight: 600; text-anchor: start; dominant-baseline: central; pointer-events: none; paint-order: stroke; stroke: #FFFFFFE6; stroke-width: 4px; font-variant-numeric: tabular-nums; }
 .bx-size.is-rough { fill: var(--np-muted); }
 .bx-draft { fill: var(--np-accent); fill-opacity: 0.12; stroke: var(--np-accent); stroke-width: 2; stroke-dasharray: 6 4; vector-effect: non-scaling-stroke; pointer-events: none; }
 .bx-edge { stroke: transparent; }
@@ -101,3 +104,11 @@
 @keyframes bx-in { from { opacity: 0; transform: translate(-50%, 6px); } }
 @media (prefers-reduced-motion: reduce) { .bx-toast { animation: none; } }
 .bx-link { margin: 0 2px; border: 0; background: none; padding: 0; font: inherit; color: var(--np-accent); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.bx-cut { stroke: var(--np-accent); vector-effect: non-scaling-stroke; pointer-events: none; }
+.bx-tip--quiet { font-size: 12px; }
+.bx-tip--accent { color: var(--np-accent); font-weight: 600; }
+.bx-notice { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); padding: 6px 12px; border-radius: 999px; background: var(--np-panel); border: 1px solid var(--np-line); color: var(--np-ink); font-size: 13px; box-shadow: 0 2px 8px rgb(0 0 0 / 0.06); z-index: 3; white-space: nowrap; animation: bx-in-top 200ms var(--np-ease) both; }
+@keyframes bx-in-top { from { opacity: 0; transform: translate(-50%, -6px); } }
+@media (prefers-reduced-motion: reduce) { .bx-notice { animation: none; } }
+.bx-brushes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.bx-brushes .bx-chip { border-radius: 8px; padding: 6px 0; text-align: center; }

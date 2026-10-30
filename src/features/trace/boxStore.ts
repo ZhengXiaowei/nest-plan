@@ -3,12 +3,14 @@ import {uid} from '../../lib/id';
 import {projectOnSegment} from '../../model/snap';
 import {
   attachMarks,
+  cutBoxes,
   isExterior,
   markWidthMm,
   newBox,
   normBox,
   scaleFromArea,
   scaleFromWall,
+  suggestName,
   wallAt,
   wallTypes,
   wallsFromBoxes,
@@ -20,6 +22,7 @@ import {
   type WallMark,
 } from './boxes';
 import type {P} from './draft';
+import type {LoadedImage} from './image';
 
 /** 框房间流程的状态：方框、门窗、墙类型，带撤销 */
 
@@ -42,6 +45,11 @@ interface BoxStore extends BoxState {
   guessedFor: string;
   past: BoxState[];
   future: BoxState[];
+  /** 正在切开选中的方框（点一下切成两间） */
+  cutting: boolean;
+  /** 上传的截图被自动裁过时，没裁的原图（用户可以换回去） */
+  uncropped: LoadedImage | null;
+  setUncropped: (img: LoadedImage | null) => void;
 
   reset: () => void;
   setMode: (mode: BoxStore['mode']) => void;
@@ -58,7 +66,11 @@ interface BoxStore extends BoxState {
   patch: (fn: (s: BoxState) => Partial<BoxState>) => void;
   undo: () => void;
   redo: () => void;
-  addBox: (b: Omit<Box, 'id' | 'source'> & {source?: Box['source']}) => string;
+  /** cut：手动拖出的框，压到的已有方框让出来 */
+  addBox: (b: Omit<Box, 'id' | 'source'> & {source?: Box['source']}, opts?: {cut?: boolean}) => string;
+  setCutting: (on: boolean) => void;
+  /** 把方框在 at 处切成两个（axis 'v' 竖着切），新的一半选中，等起名 */
+  splitBox: (id: string, axis: 'h' | 'v', at: number) => void;
   removeBox: (id: string) => void;
   renameBox: (id: string, name: string) => void;
   /** 按图猜的结果替换之前猜的，用户点过的保留 */
@@ -73,7 +85,8 @@ const HISTORY = 100;
 const empty = (): BoxState => ({boxes: [], marks: [], wallMarks: []});
 const pick = (s: BoxState): BoxState => ({boxes: s.boxes, marks: s.marks, wallMarks: s.wallMarks});
 
-export const boxSignature = (boxes: readonly Box[]) => boxes.map((b) => `${Math.round(b.x0)},${Math.round(b.y0)},${Math.round(b.x1)},${Math.round(b.y1)}`).sort().join(';');
+/** 方框的样子（位置和名字），变了才重新按图猜 */
+export const boxSignature = (boxes: readonly Box[]) => boxes.map((b) => `${Math.round(b.x0)},${Math.round(b.y0)},${Math.round(b.x1)},${Math.round(b.y1)},${b.name}`).sort().join(';');
 
 /** 吸附门窗、墙类型用的容差（像素） */
 const tolOf = (mmPerPixel: number) => Math.max(6, 300 / mmPerPixel);
@@ -90,11 +103,26 @@ export const useBoxStore = create<BoxStore>()((set, get) => ({
   guessedFor: '',
   past: [],
   future: [],
+  cutting: false,
+  uncropped: null,
+  setUncropped: (uncropped) => set({uncropped}),
 
-  reset: () => set({...empty(), step: 1, selected: null, brush: 'door', area: '', measure: null, hintScale: null, guessedFor: '', past: [], future: []}),
+  reset: () => set({...empty(), cutting: false, uncropped: null, step: 1, selected: null, brush: 'door', area: '', measure: null, hintScale: null, guessedFor: '', past: [], future: []}),
   setMode: (mode) => set({mode}),
-  setStep: (step) => set({step, selected: null, measure: step === 3 ? get().measure : null}),
-  select: (selected) => set({selected}),
+  setStep: (step) => set({step, selected: null, cutting: false, measure: step === 3 ? get().measure : null}),
+  select: (selected) => set({selected, cutting: selected ? get().cutting : false}),
+  setCutting: (cutting) => set({cutting}),
+  splitBox: (id, axis, at) => {
+    const b = get().boxes.find((x) => x.id === id);
+    if (!b) return;
+    const n = normBox(b);
+    const other = newBox(axis === 'v' ? at : n.x0, axis === 'h' ? at : n.y0, n.x1, n.y1, '', b.source);
+    get().commit((st) => {
+      const kept = {...n, ...(axis === 'v' ? {x1: at} : {y1: at})};
+      return {boxes: [...st.boxes.map((x) => (x.id === id ? kept : x)), {...other, name: suggestName(st.boxes)}]};
+    });
+    set({selected: other.id, cutting: false});
+  },
   setBrush: (brush) => set({brush}),
   setArea: (area) => set({area}),
   setMeasure: (measure) => set({measure}),
@@ -115,9 +143,9 @@ export const useBoxStore = create<BoxStore>()((set, get) => ({
       const next = s.future[0];
       return next ? {...next, past: [...s.past, pick(s)], future: s.future.slice(1), selected: null} : s;
     }),
-  addBox: (b) => {
+  addBox: (b, opts) => {
     const box = newBox(b.x0, b.y0, b.x1, b.y1, b.name, b.source);
-    get().commit((s) => ({boxes: [...s.boxes, box]}));
+    get().commit((s) => ({boxes: [...(opts?.cut ? cutBoxes(s.boxes, box) : s.boxes), box]}));
     set({selected: box.id});
     return box.id;
   },

@@ -5,7 +5,6 @@ import {Banner} from '@astryxdesign/core/Banner';
 import {TextInput} from '@astryxdesign/core/TextInput';
 import {Heading} from '@astryxdesign/core/Heading';
 import {IconButton} from '@astryxdesign/core/IconButton';
-import {SegmentedControl, SegmentedControlItem} from '@astryxdesign/core/SegmentedControl';
 import {VStack, HStack} from '@astryxdesign/core/Stack';
 import {IconRedo, IconUndo} from '../../lib/icons';
 import {useAiSettings, isAiConfigured} from '../ai/settings';
@@ -48,7 +47,7 @@ export function BoxPanel({image, onPickFile, onUseSample}: {image: LoadedImage |
       try {
         const {gray, wall} = await grayOf(image);
         const st = useBoxStore.getState();
-        const g = guessFromImage(gray, wallsFromBoxes(st.boxes), wall ?? 240 / roughBoxScale(null, image.width));
+        const g = guessFromImage(gray, wallsFromBoxes(st.boxes), wall ?? 240 / roughBoxScale(null, image.width), new Map(st.boxes.map((b) => [b.id, b.name])));
         st.applyGuess(g, boxSignature(st.boxes));
       } finally {
         setBusy(null);
@@ -138,14 +137,16 @@ export function BoxPanel({image, onPickFile, onUseSample}: {image: LoadedImage |
 function StepRooms({busy, onAi, aiReady, onNext}: {busy: 'ai' | 'guess' | null; onAi: () => void; aiReady: boolean; onNext: () => void}) {
   const boxes = useBoxStore((s) => s.boxes);
   const selected = useBoxStore((s) => s.selected);
+  const cutting = useBoxStore((s) => s.cutting);
   const sel = boxes.find((b) => b.id === selected);
   const store = useBoxStore.getState();
   const [custom, setCustom] = useState('');
   return (
     <VStack gap={3}>
       <p className="bx-tip">
-        沿着图上的墙，<b>按住拖出</b>每个房间的方框，或者在房间里<b>双击</b>自动框。过道、阳台也框上，相邻的方框会自动贴在一起。
+        在房间里<b>双击</b>自动框，或者沿着墙<b>按住拖出</b>方框。过道、阳台也框上，相邻的方框会自动贴在一起。
       </p>
+      <p className="bx-tip bx-tip--quiet">两间框成了一个：选中它点「切成两间」。L 形的房间：框两块，起一样的名字就连成一间。</p>
       <Button label={aiReady ? 'AI 帮我框' : 'AI 帮我框（先连模型）'} variant={boxes.length ? 'secondary' : 'primary'} isLoading={busy === 'ai'} onClick={onAi} />
       {sel && (
         <VStack gap={2}>
@@ -170,13 +171,32 @@ function StepRooms({busy, onAi, aiReady, onNext}: {busy: 'ai' | 'guess' | null; 
               }}
             />
           </HStack>
-          <Button label="删掉这个方框" variant="ghost" size="sm" onClick={() => store.removeBox(sel.id)} />
+          {cutting ? (
+            <HStack gap={2} align="center">
+              <p className="bx-tip bx-tip--accent">在方框里要切开的地方点一下</p>
+              <Button label="不切了" variant="ghost" size="sm" onClick={() => store.setCutting(false)} />
+            </HStack>
+          ) : (
+            <HStack gap={2}>
+              <Button label="切成两间" variant="secondary" size="sm" onClick={() => store.setCutting(true)} />
+              <Button label="删掉" variant="ghost" size="sm" onClick={() => store.removeBox(sel.id)} />
+            </HStack>
+          )}
         </VStack>
       )}
       <Button label={busy === 'guess' ? '正在看图…' : '下一步：门窗和承重墙'} variant="primary" isDisabled={!boxes.length} isLoading={busy === 'guess'} onClick={onNext} />
     </VStack>
   );
 }
+
+const BRUSHES: [Brush, string][] = [
+  ['door', '门'],
+  ['slidingDoor', '推拉门'],
+  ['window', '窗'],
+  ['entry', '入户门'],
+  ['bearing', '承重墙'],
+  ['open', '敞开'],
+];
 
 function StepWalls({image, onBack, onNext}: {image: LoadedImage; onBack: () => void; onNext: () => void}) {
   const brush = useBoxStore((s) => s.brush);
@@ -203,14 +223,13 @@ function StepWalls({image, onBack, onNext}: {image: LoadedImage; onBack: () => v
       <p className="bx-tip">
         墙已经按方框生成好了。{stats.guessed ? '按图猜了一遍，虚线和浅色的是猜的，' : ''}不对的地方选一种，<b>点墙</b>改。
       </p>
-      <SegmentedControl label="点墙放什么" value={brush} onChange={(v) => store.setBrush(v as Brush)} size="sm" layout="fill">
-        <SegmentedControlItem value="door" label="门" />
-        <SegmentedControlItem value="slidingDoor" label="推拉门" />
-        <SegmentedControlItem value="window" label="窗" />
-        <SegmentedControlItem value="entry" label="入户门" />
-        <SegmentedControlItem value="bearing" label="承重墙" />
-        <SegmentedControlItem value="open" label="敞开" />
-      </SegmentedControl>
+      <div className="bx-brushes" role="radiogroup" aria-label="点墙放什么">
+        {BRUSHES.map(([v, label]) => (
+          <button key={v} type="button" role="radio" aria-checked={brush === v} className="bx-chip" aria-pressed={brush === v} onClick={() => store.setBrush(v)}>
+            {label}
+          </button>
+        ))}
+      </div>
       <p className="bx-tip">{BRUSH_TIPS[brush]}</p>
       <div className="bx-legend">
         <span><i style={{background: '#111827'}} />承重墙 {stats.bearing}</span>
@@ -221,7 +240,7 @@ function StepWalls({image, onBack, onNext}: {image: LoadedImage; onBack: () => v
       {stats.unverified > 0 && (
         <VStack gap={1}>
           <p className="bx-tip">
-            承重墙是按图上的粗细猜的，以物业或开发商的结构图为准。拿不准的先不管，设计时拆这些墙会提醒你核实。
+            承重墙是按图上墙的颜色和粗细猜的，以物业或开发商的结构图为准。拿不准的先不管，设计时拆这些墙会提醒你核实。
           </p>
           <Button label="室内墙我都核对过了" variant="ghost" size="sm" onClick={() => store.verifyAll(s)} />
         </VStack>

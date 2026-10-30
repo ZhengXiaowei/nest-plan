@@ -45,6 +45,8 @@ export interface BoxWall {
   axis: 'h' | 'v';
   /** 两侧的方框：横墙 [上, 下]，竖墙 [左, 右]；null 表示那一侧是户外 */
   sides: [string | null, string | null];
+  /** 两侧方框名字一样：同一个房间（L 形房间拆成两个方框），中间默认没有墙 */
+  sameRoom?: boolean;
 }
 
 export const isExterior = (w: BoxWall) => !w.sides[0] || !w.sides[1];
@@ -61,6 +63,8 @@ export function normBox<T extends Pick<Box, 'x0' | 'y0' | 'x1' | 'y1'>>(b: T): T
 }
 
 const EPS = 0.5;
+/** 差这么多像素以内的边算在同一条线上（各自吸附到图上墙线，常差一两个像素） */
+const ALIGN = 2.5;
 
 /** 方框 → 墙。每条直线上按所有边的端点切段，看两侧各是哪个方框，两侧相同的相邻段合并 */
 export function wallsFromBoxes(boxes: readonly Box[]): BoxWall[] {
@@ -79,7 +83,7 @@ export function wallsFromBoxes(boxes: readonly Box[]): BoxWall[] {
     const groups: (typeof edges)[] = [];
     for (const e of edges) {
       const g = groups.at(-1);
-      if (g && Math.abs(e.line - g[0]!.line) <= EPS) g.push(e);
+      if (g && Math.abs(e.line - g[0]!.line) <= ALIGN) g.push(e);
       else groups.push([e]);
     }
     for (const g of groups) {
@@ -88,20 +92,21 @@ export function wallsFromBoxes(boxes: readonly Box[]): BoxWall[] {
       let cur: BoxWall | null = null;
       for (let i = 0; i + 1 < cuts.length; i++) {
         const [p, q] = [cuts[i]!, cuts[i + 1]!];
-        if (q - p <= EPS) continue;
+        if (q - p <= ALIGN) continue;
         const mid = (p + q) / 2;
         if (!g.some((e) => e.s0 <= mid && e.s1 >= mid)) {
           cur = null;
           continue;
         }
-        const neg = axis === 'h' ? inside(mid, line - EPS) : inside(line - EPS, mid);
-        const pos = axis === 'h' ? inside(mid, line + EPS) : inside(line + EPS, mid);
+        // 同一条线上的边可能差一两个像素，往两侧多探一点
+        const neg = axis === 'h' ? inside(mid, line - ALIGN - EPS) : inside(line - ALIGN - EPS, mid);
+        const pos = axis === 'h' ? inside(mid, line + ALIGN + EPS) : inside(line + ALIGN + EPS, mid);
         if (neg === pos) {
           cur = null;
           continue;
         }
         const at = (s: number): P => (axis === 'h' ? [s, line] : [line, s]);
-        if (cur && cur.sides[0] === neg && cur.sides[1] === pos && Math.abs((axis === 'h' ? cur.b[0] : cur.b[1]) - p) <= EPS) {
+        if (cur && cur.sides[0] === neg && cur.sides[1] === pos && Math.abs((axis === 'h' ? cur.b[0] : cur.b[1]) - p) <= ALIGN) {
           cur.b = at(q);
         } else {
           cur = {id: '', a: at(p), b: at(q), axis, sides: [neg, pos]};
@@ -110,6 +115,8 @@ export function wallsFromBoxes(boxes: readonly Box[]): BoxWall[] {
       }
     }
   }
+  const names = new Map(bs.map((b) => [b.id, b.name.trim()]));
+  for (const w of out) if (w.sides[0] && w.sides[1] && names.get(w.sides[0]) && names.get(w.sides[0]) === names.get(w.sides[1])) w.sameRoom = true;
   for (const w of out) w.id = `bw-${w.axis}-${Math.round(w.a[0])}-${Math.round(w.a[1])}-${Math.round(w.b[0])}-${Math.round(w.b[1])}`;
   return out;
 }
@@ -151,6 +158,8 @@ export function wallTypes(walls: readonly BoxWall[], wallMarks: readonly WallMar
     walls.map((w): [string, WallType] => {
       const m = marked.get(w.id);
       if (isExterior(w)) return [w.id, {kind: m?.kind === 'bearing' ? 'bearing' : 'exterior', open: false, verified: true, guessed: false}];
+      // 同一个房间的两个方框之间：用户没点过就当敞开
+      if (w.sameRoom && (!m || m.guessed)) return [w.id, {kind: 'partition', open: true, verified: true, guessed: false}];
       const open = m?.kind === 'open';
       return [w.id, {kind: m?.kind === 'bearing' ? 'bearing' : 'partition', open, verified: open || (!!m && !m.guessed), guessed: !!m?.guessed}];
     }),
@@ -180,7 +189,7 @@ export function roomRect(box: Box, walls: readonly BoxWall[], types: Map<string,
     for (const w of walls) {
       if (w.axis !== axis) continue;
       const [wl, ws0, ws1] = axis === 'h' ? [w.a[1], w.a[0], w.b[0]] : [w.a[0], w.a[1], w.b[1]];
-      if (Math.abs(wl - line) > EPS || ws1 <= s0 + EPS || ws0 >= s1 - EPS) continue;
+      if (Math.abs(wl - line) > ALIGN || ws1 <= s0 + EPS || ws0 >= s1 - EPS) continue;
       const ty = types.get(w.id);
       if (!ty?.open) t = Math.max(t, MANUAL_THICKNESS[ty?.kind ?? 'partition']);
     }
@@ -192,6 +201,92 @@ export function roomRect(box: Box, walls: readonly BoxWall[], types: Map<string,
     y0: b.y0 + half('h', b.y0, b.x0, b.x1),
     y1: b.y1 - half('h', b.y1, b.x0, b.x1),
   };
+}
+
+/**
+ * 几个相连方框合起来的外轮廓（直角多边形，图片像素）。按所有边的坐标切成小格，
+ * 找出被覆盖的格子，沿覆盖区的边界走一圈；有几圈时取面积最大的。
+ */
+export function unionOutline(rects: readonly Rect[]): P[] {
+  const uniq = (vs: number[]) => {
+    const out: number[] = [];
+    for (const v of [...vs].sort((a, b) => a - b)) if (!out.length || v - out.at(-1)! > ALIGN) out.push(v);
+    return out;
+  };
+  const xs = uniq(rects.flatMap((r) => [r.x0, r.x1]));
+  const ys = uniq(rects.flatMap((r) => [r.y0, r.y1]));
+  const near = (vs: number[], v: number) => vs.reduce((a, b) => (Math.abs(b - v) < Math.abs(a - v) ? b : a));
+  const rs = rects.map((r) => ({x0: near(xs, r.x0), x1: near(xs, r.x1), y0: near(ys, r.y0), y1: near(ys, r.y1)}));
+  const cov = (i: number, j: number) => {
+    if (i < 0 || j < 0 || i >= xs.length - 1 || j >= ys.length - 1) return false;
+    const [cx, cy] = [(xs[i]! + xs[i + 1]!) / 2, (ys[j]! + ys[j + 1]!) / 2];
+    return rs.some((r) => cx > r.x0 && cx < r.x1 && cy > r.y0 && cy < r.y1);
+  };
+  // 有向边：覆盖区在边的右手边（屏幕坐标 y 向下时是顺时针）
+  const next = new Map<string, P>();
+  const key = (p: P) => `${p[0]},${p[1]}`;
+  for (let i = 0; i < xs.length - 1; i++) {
+    for (let j = 0; j < ys.length - 1; j++) {
+      if (!cov(i, j)) continue;
+      const [x0, x1, y0, y1] = [xs[i]!, xs[i + 1]!, ys[j]!, ys[j + 1]!];
+      if (!cov(i, j - 1)) next.set(key([x0, y0]), [x1, y0]);
+      if (!cov(i + 1, j)) next.set(key([x1, y0]), [x1, y1]);
+      if (!cov(i, j + 1)) next.set(key([x1, y1]), [x0, y1]);
+      if (!cov(i - 1, j)) next.set(key([x0, y1]), [x0, y0]);
+    }
+  }
+  const loops: P[][] = [];
+  const seen = new Set<string>();
+  for (const k0 of next.keys()) {
+    if (seen.has(k0)) continue;
+    const loop: P[] = [];
+    let k = k0;
+    while (!seen.has(k) && next.has(k)) {
+      seen.add(k);
+      const [x, y] = k.split(',').map(Number) as [number, number];
+      loop.push([x, y]);
+      k = key(next.get(k)!);
+    }
+    // 去掉共线的点
+    const simple = loop.filter((p, i) => {
+      const a = loop[(i + loop.length - 1) % loop.length]!;
+      const b = loop[(i + 1) % loop.length]!;
+      return !((a[0] === p[0] && p[0] === b[0]) || (a[1] === p[1] && p[1] === b[1]));
+    });
+    loops.push(simple);
+  }
+  const area = (l: P[]) => Math.abs(l.reduce((s, p, i) => s + p[0] * l[(i + 1) % l.length]![1] - l[(i + 1) % l.length]![0] * p[1], 0)) / 2;
+  return loops.sort((a, b) => area(b) - area(a))[0] ?? [];
+}
+
+/** 合起来的轮廓每条边往里收该边上墙厚的一半（敞开的边不收） */
+function insetOutline(poly: P[], rects: readonly Rect[], walls: readonly BoxWall[], types: Map<string, WallType>, mmPerPixel: number): P[] {
+  const n = poly.length;
+  const inRects = (x: number, y: number) => rects.some((r) => x > r.x0 && x < r.x1 && y > r.y0 && y < r.y1);
+  const lines = poly.map((a, i) => {
+    const b = poly[(i + 1) % n]!;
+    const axis: 'h' | 'v' = a[1] === b[1] ? 'h' : 'v';
+    const [line, s0, s1] = axis === 'h' ? [a[1], Math.min(a[0], b[0]), Math.max(a[0], b[0])] : [a[0], Math.min(a[1], b[1]), Math.max(a[1], b[1])];
+    let t = 0;
+    for (const w of walls) {
+      if (w.axis !== axis) continue;
+      const [wl, ws0, ws1] = axis === 'h' ? [w.a[1], w.a[0], w.b[0]] : [w.a[0], w.a[1], w.b[1]];
+      if (Math.abs(wl - line) > ALIGN || ws1 <= s0 + EPS || ws0 >= s1 - EPS) continue;
+      const ty = types.get(w.id);
+      if (!ty?.open) t = Math.max(t, MANUAL_THICKNESS[ty?.kind ?? 'partition']);
+    }
+    const d = t / 2 / mmPerPixel;
+    // 往哪边是屋里：边中点往两侧各探一点
+    const mid = (s0 + s1) / 2;
+    const dir = axis === 'h' ? (inRects(mid, line + 1) ? 1 : -1) : inRects(line + 1, mid) ? 1 : -1;
+    return {axis, at: line + dir * d};
+  });
+  return poly.map((_, i) => {
+    const prev = lines[(i + n - 1) % n]!;
+    const cur = lines[i]!;
+    // 顶点 i 是前一条边和这条边的交点
+    return prev.axis === 'h' ? [cur.at, prev.at] : [prev.at, cur.at];
+  });
 }
 
 const rectArea = (r: {x0: number; y0: number; x1: number; y1: number}) => Math.max(0, r.x1 - r.x0) * Math.max(0, r.y1 - r.y0);
@@ -248,15 +343,20 @@ export function boxesToDraft(state: BoxState, mmPerPixel: number): Draft {
     const o = openingOnWall(byId.get(wall.id)!, mark.at, widthMm / mmPerPixel, kind, widthMm);
     return {...o, id: mark.id, ...(mark.kind === 'entry' ? {isEntry: true} : {})};
   });
-  const rooms: DraftRoom[] = state.boxes.map((b) => {
-    const r = roomRect(b, walls, types, mmPerPixel);
-    return {
-      id: b.id,
-      name: b.name,
-      poly: [[r.x0, r.y0], [r.x1, r.y0], [r.x1, r.y1], [r.x0, r.y1]],
-      source: 'manual',
-      confirmed: true,
-    };
+  // 同名、中间是敞开的方框合成一个房间（L 形房间）
+  const parent = new Map(state.boxes.map((b) => [b.id, b.id]));
+  const find = (id: string): string => (parent.get(id) === id ? id : find(parent.get(id)!));
+  for (const w of walls) if (w.sameRoom && types.get(w.id)!.open) parent.set(find(w.sides[0]!), find(w.sides[1]!));
+  const groups = new Map<string, Box[]>();
+  for (const b of state.boxes) groups.set(find(b.id), [...(groups.get(find(b.id)) ?? []), b]);
+  const rooms: DraftRoom[] = [...groups.values()].map((bs) => {
+    const first = bs[0]!;
+    let poly: P[];
+    if (bs.length === 1) {
+      const r = roomRect(first, walls, types, mmPerPixel);
+      poly = [[r.x0, r.y0], [r.x1, r.y0], [r.x1, r.y1], [r.x0, r.y1]];
+    } else poly = insetOutline(unionOutline(bs.map(normBox)), bs.map(normBox), walls, types, mmPerPixel);
+    return {id: first.id, name: first.name, poly, source: 'manual', confirmed: true};
   });
   return {walls: draftWalls, openings, rooms, dimensions: []};
 }
@@ -367,4 +467,26 @@ export function clipAgainst(r: Rect, others: readonly Rect[], p: P): Rect | null
     cur = cuts.sort((a, b) => (b.x1 - b.x0) * (b.y1 - b.y0) - (a.x1 - a.x0) * (a.y1 - a.y0))[0]!;
   }
   return cur;
+}
+
+/**
+ * 手动拖出的新方框压到已有方框上时，已有的让出来：切掉重叠部分，留下最大的一块
+ * （比如客卫和走道被自动框成一个，在走道那块拖一个框，客卫就缩回去）。完全被盖住的去掉。
+ */
+export function cutBoxes(boxes: readonly Box[], nb: Rect): Box[] {
+  const n = normBox(nb);
+  return boxes.flatMap((b0) => {
+    const b = normBox(b0);
+    const ox = Math.min(b.x1, n.x1) - Math.max(b.x0, n.x0);
+    const oy = Math.min(b.y1, n.y1) - Math.max(b.y0, n.y0);
+    if (ox <= 1 || oy <= 1) return [b0];
+    const rest = [
+      {...b, x1: Math.min(b.x1, n.x0)},
+      {...b, x0: Math.max(b.x0, n.x1)},
+      {...b, y1: Math.min(b.y1, n.y0)},
+      {...b, y0: Math.max(b.y0, n.y1)},
+    ].filter((c) => c.x1 - c.x0 > 1 && c.y1 - c.y0 > 1);
+    if (!rest.length) return [];
+    return [rest.sort((p, q) => rectArea(q) - rectArea(p))[0]!];
+  });
 }

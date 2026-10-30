@@ -52,6 +52,8 @@ export default function TracePage() {
   const openDialog = useAiSettings((s) => s.openDialog);
   const {mmPerPixel} = useScale();
   const mode = useBoxStore((s) => s.mode);
+  const uncropped = useBoxStore((s) => s.uncropped);
+  const noBoxes = useBoxStore((s) => s.boxes.length === 0);
   const [miss, setMiss] = useState(false);
   useEffect(() => {
     let timer = 0;
@@ -79,8 +81,10 @@ export default function TracePage() {
       return;
     }
     try {
-      useTraceStore.getState().setImage(await loadImageFile(file));
+      const {image: img, original} = await loadImageFile(file);
+      useTraceStore.getState().setImage(img);
       useBoxStore.getState().reset();
+      useBoxStore.getState().setUncropped(original);
       useBoxStore.getState().setMode('boxes');
     } catch {
       setError('这张图片读不出来，换一张试试。');
@@ -145,6 +149,21 @@ export default function TracePage() {
           <>
             <BoxCanvas key={image.dataUrl.length + image.name} image={image} />
             {miss && <div className="bx-toast">这里框不出房间，试试拖一个方框</div>}
+            {uncropped && noBoxes && (
+              <div className="bx-notice">
+                已帮你裁出截图里的户型图
+                <button
+                  type="button"
+                  className="bx-link"
+                  onClick={() => {
+                    useTraceStore.getState().setImage(uncropped);
+                    useBoxStore.getState().setUncropped(null);
+                  }}
+                >
+                  用整张图
+                </button>
+              </div>
+            )}
           </>
         ) : (
           <>

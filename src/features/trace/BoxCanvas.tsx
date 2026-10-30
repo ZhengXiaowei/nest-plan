@@ -51,6 +51,7 @@ export function BoxCanvas({image}: {image: LoadedImage}) {
   const measure = useBoxStore((s) => s.measure);
   const area = useBoxStore((s) => s.area);
   const hintScale = useBoxStore((s) => s.hintScale);
+  const cutting = useBoxStore((s) => s.cutting);
 
   const [scan, setScan] = useState<{gray: Gray; wall: number | null} | null>(null);
   useEffect(() => {
@@ -143,7 +144,10 @@ export function BoxCanvas({image}: {image: LoadedImage}) {
       if (e.key === ' ') {
         e.preventDefault();
         setSpaceDown(true);
-      } else if (e.key === 'Escape') store.select(null);
+      } else if (e.key === 'Escape') {
+        if (store.cutting) store.setCutting(false);
+        else store.select(null);
+      }
       else if ((e.key === 'Delete' || e.key === 'Backspace') && store.selected) store.removeBox(store.selected);
       else if (mod && e.key.toLowerCase() === 'z') {
         e.preventDefault();
@@ -196,7 +200,7 @@ export function BoxCanvas({image}: {image: LoadedImage}) {
       gesture.current = {...base, mode: 'pan'};
       return;
     }
-    if (step !== 1) {
+    if (step !== 1 || store.cutting) {
       gesture.current = {...base, mode: 'tap'};
       return;
     }
@@ -220,7 +224,7 @@ export function BoxCanvas({image}: {image: LoadedImage}) {
     const p = toImage(e.clientX, e.clientY);
     const g = gesture.current;
     if (!g) {
-      if (step === 2) setHover(p);
+      if (step === 2 || cutting) setHover(p);
       return;
     }
     const moved = Math.hypot(e.clientX - g.startClient[0], e.clientY - g.startClient[1]) > 3;
@@ -267,7 +271,7 @@ export function BoxCanvas({image}: {image: LoadedImage}) {
         return;
       }
       const b = snapBox({id: '_new', name: '', source: 'manual', ...raw}, ['x0', 'x1', 'y0', 'y1'], store.boxes);
-      store.addBox({...b, name: suggestName(store.boxes)});
+      store.addBox({...b, name: suggestName(store.boxes)}, {cut: true});
     } else if (g.mode === 'move' && g.moved && g.box) {
       const cur = store.boxes.find((b) => b.id === g.box!.id);
       if (cur) store.patch((st) => ({boxes: st.boxes.map((x) => (x.id === cur.id ? snapMove(cur, st.boxes) : x))}));
@@ -275,7 +279,11 @@ export function BoxCanvas({image}: {image: LoadedImage}) {
       const cur = store.boxes.find((b) => b.id === g.box!.id);
       if (cur) store.patch((st) => ({boxes: st.boxes.map((x) => (x.id === cur.id ? snapBox(cur, g.sides!, st.boxes.filter((o) => o.id !== cur.id)) : x))}));
     } else if (g.mode === 'tap' && !g.moved) {
-      if (step === 2) store.tapWall(p, s);
+      if (step === 1 && store.cutting) {
+        const c = sel && cutLine(sel, p);
+        if (c) store.splitBox(sel.id, c.axis, c.at);
+        else store.setCutting(false);
+      } else if (step === 2) store.tapWall(p, s);
       else if (step === 3) {
         const w = wallAt(walls, p, Math.max(tol, 10 * k));
         if (w) store.setMeasure({wallId: w.id, mm: store.measure?.wallId === w.id ? store.measure.mm : ''});
@@ -283,8 +291,20 @@ export function BoxCanvas({image}: {image: LoadedImage}) {
     }
   };
 
+  /** 切开选中方框的位置：垂直于长边，跟着鼠标，吸到图上的墙线；点在方框外返回 null */
+  const cutLine = (box: Box, p: P): {axis: 'h' | 'v'; at: number} | null => {
+    const b = normBox(box);
+    if (p[0] < b.x0 || p[0] > b.x1 || p[1] < b.y0 || p[1] > b.y1) return null;
+    const axis = b.x1 - b.x0 > b.y1 - b.y0 ? 'v' : 'h';
+    const [lo, hi, pos] = axis === 'v' ? [b.x0, b.x1, p[0]] : [b.y0, b.y1, p[1]];
+    const snapped = scan ? snapEdge(scan.gray, axis, pos, axis === 'v' ? b.y0 : b.x0, axis === 'v' ? b.y1 : b.x1, Math.max(1.5 * t, 10 * k), t * 1.1) : null;
+    const min = Math.max(t, 8 * k);
+    const at = Math.max(lo + min, Math.min(hi - min, snapped ?? pos));
+    return {axis, at};
+  };
+
   const onDoubleClick = (e: React.MouseEvent<SVGSVGElement>) => {
-    if (step !== 1 || !scan) return;
+    if (step !== 1 || !scan || cutting) return;
     if ((e.target as Element).closest('[data-box]')) return;
     const p = toImage(e.clientX, e.clientY);
     const store = useBoxStore.getState();
@@ -301,10 +321,11 @@ export function BoxCanvas({image}: {image: LoadedImage}) {
 
   // 第 2 步：鼠标下的墙和要放的门窗预览
   const hoverWall = step === 2 && hover ? wallAt(walls, hover, Math.max(tol, 10 * k)) : null;
+  const sel = boxes.find((b) => b.id === selected);
   const preview = hoverWall && hover && brush !== 'bearing' && brush !== 'open' && !types.get(hoverWall.id)?.open ? markPreview(hoverWall, projectOnSegment(hover, hoverWall.a, hoverWall.b).point, brush, s) : null;
   const attached = useMemo(() => attachMarks(walls.filter((w) => !types.get(w.id)?.open), marks, tol), [walls, types, marks, tol]);
-  const cursor = spaceDown ? 'grab' : step === 1 ? 'crosshair' : hoverWall || step === 3 ? 'pointer' : 'grab';
-  const sel = boxes.find((b) => b.id === selected);
+  const cut = cutting && sel && hover ? cutLine(sel, hover) : null;
+  const cursor = spaceDown ? 'grab' : cutting ? (cut ? (cut.axis === 'v' ? 'col-resize' : 'row-resize') : 'default') : step === 1 ? 'crosshair' : hoverWall || step === 3 ? 'pointer' : 'grab';
 
   return (
     <svg
@@ -324,18 +345,26 @@ export function BoxCanvas({image}: {image: LoadedImage}) {
 
       {boxes.map((b) => {
         const r = roomRect(b, walls, types, s);
+        const n = normBox(b);
         const label = step === 3 || real ? `${fmtM((r.x1 - r.x0) * s)} × ${fmtM((r.y1 - r.y0) * s)} m` : null;
+        // 名字贴在方框左上角，免得盖住图上原来的房间名
+        const fs = 13 * k;
+        const pad = 5 * k;
+        const tagW = Math.max(b.name.length, 2) * fs + pad * 2;
         return (
           <g key={b.id} data-box={step === 1 ? b.id : undefined} className={['bx-box', b.id === selected && 'is-selected', step !== 1 && 'is-quiet'].filter(Boolean).join(' ')}>
-            <rect x={Math.min(b.x0, b.x1)} y={Math.min(b.y0, b.y1)} width={Math.abs(b.x1 - b.x0)} height={Math.abs(b.y1 - b.y0)} />
-            <text x={(b.x0 + b.x1) / 2} y={(b.y0 + b.y1) / 2 - (label ? 8 * k : 0)} fontSize={14 * k} className="bx-name">
-              {b.name}
-            </text>
-            {label && (
-              <text x={(b.x0 + b.x1) / 2} y={(b.y0 + b.y1) / 2 + 10 * k} fontSize={12 * k} className={real ? 'bx-size' : 'bx-size is-rough'}>
-                {real ? label : `约 ${label}`}
+            <rect x={n.x0} y={n.y0} width={n.x1 - n.x0} height={n.y1 - n.y0} />
+            <g className="bx-tag" transform={`translate(${n.x0 + 4 * k} ${n.y0 + 4 * k})`}>
+              <rect width={tagW} height={fs + pad * 1.6} rx={4 * k} />
+              <text x={pad} y={(fs + pad * 1.6) / 2} fontSize={fs} className="bx-name">
+                {b.name}
               </text>
-            )}
+              {label && (
+                <text x={pad / 2} y={fs + pad * 1.6 + 10 * k} fontSize={12 * k} className={real ? 'bx-size' : 'bx-size is-rough'}>
+                  {real ? label : `约 ${label}`}
+                </text>
+              )}
+            </g>
           </g>
         );
       })}
@@ -380,7 +409,18 @@ export function BoxCanvas({image}: {image: LoadedImage}) {
         </g>
       )}
 
-      {step === 1 && sel && <Handles box={sel} k={k} />}
+      {step === 1 && sel && !cutting && <Handles box={sel} k={k} />}
+      {cut && sel && (
+        <line
+          x1={cut.axis === 'v' ? cut.at : Math.min(sel.x0, sel.x1)}
+          x2={cut.axis === 'v' ? cut.at : Math.max(sel.x0, sel.x1)}
+          y1={cut.axis === 'h' ? cut.at : Math.min(sel.y0, sel.y1)}
+          y2={cut.axis === 'h' ? cut.at : Math.max(sel.y0, sel.y1)}
+          strokeWidth={3 * k}
+          strokeDasharray={`${8 * k} ${5 * k}`}
+          className="bx-cut"
+        />
+      )}
       {draftRect && <rect {...rectAttrs(draftRect)} className="bx-draft" />}
     </svg>
   );

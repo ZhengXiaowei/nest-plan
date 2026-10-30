@@ -4,7 +4,9 @@ import {
   boxesFromRooms,
   boxesToDraft,
   clipAgainst,
+  cutBoxes,
   isExterior,
+  unionOutline,
   roomRect,
   scaleFromArea,
   snapToBoxes,
@@ -39,6 +41,13 @@ describe('方框生成墙', () => {
       [100, 300, false],
       [300, 600, true],
     ]);
+  });
+
+  it('相邻方框的边差半个像素也算贴在一起', () => {
+    const walls = wallsFromBoxes([box('A', 0, 0, 400, 300), box('B', 400, 300.5, 700, 600), box('C', 0, 300, 400, 600)]);
+    const y300 = walls.filter((w) => w.axis === 'h' && Math.abs(w.a[1] - 300) < 1);
+    expect(y300.every((w) => !isExterior(w) || w.a[0] >= 400)).toBe(true);
+    expect(y300.find((w) => w.a[0] === 0)?.sides).toEqual(['A', 'C']);
   });
 
   it('同一个房间的边不会被切碎：一整条边一段墙', () => {
@@ -158,5 +167,45 @@ describe('自动框和已有方框重叠', () => {
     const r = clipAgainst({x0: 0, y0: 0, x1: 600, y1: 300}, [box('K', 0, 0, 250, 300)], [400, 150]);
     expect(r).toEqual({x0: 250, y0: 0, x1: 600, y1: 300});
     expect(clipAgainst({x0: 0, y0: 0, x1: 600, y1: 300}, [box('K', 0, 0, 250, 300)], [100, 150])).toBeNull();
+  });
+});
+
+describe('拖新框切开已有方框', () => {
+  it('压住下半截：原来的缩到上半截；完全盖住的去掉', () => {
+    const got = cutBoxes([box('W', 0, 0, 200, 300), box('X', 500, 0, 600, 100)], {x0: -10, y0: 200, x1: 300, y1: 300});
+    expect(got.map((b) => [b.id, b.x0, b.y0, b.x1, b.y1])).toEqual([
+      ['W', 0, 0, 200, 200],
+      ['X', 500, 0, 600, 100],
+    ]);
+    expect(cutBoxes([box('W', 0, 0, 200, 300)], {x0: -1, y0: -1, x1: 201, y1: 301})).toEqual([]);
+  });
+});
+
+describe('L 形房间', () => {
+  it('两个方框同名：中间的墙默认敞开，不生成墙', () => {
+    const boxes = [box('a', 0, 0, 400, 300, '主卧'), box('b', 400, 0, 600, 200, '主卧')];
+    const walls = wallsFromBoxes(boxes);
+    const inner = walls.find((w) => !isExterior(w))!;
+    expect(inner.sameRoom).toBe(true);
+    expect(wallTypes(walls, [], 10).get(inner.id)).toMatchObject({open: true});
+    expect(draftToPlan(boxesToDraft({boxes, marks: [], wallMarks: []}, 10), 10).walls.every((w) => w.kind === 'exterior')).toBe(true);
+    // 合成一个 L 形房间
+    const plan = draftToPlan(boxesToDraft({boxes, marks: [], wallMarks: []}, 10), 10);
+    expect(plan.rooms).toHaveLength(1);
+    expect(plan.rooms[0]!.poly).toHaveLength(6);
+    // 外圈都按外墙收 120 mm（12 像素），拐角处也对
+    const d = boxesToDraft({boxes, marks: [], wallMarks: []}, 10).rooms[0]!.poly.map(([x, y]) => [Math.round(x), Math.round(y)]);
+    expect(new Set(d.map((p) => p.join()))).toEqual(new Set(['12,12', '588,12', '588,188', '388,188', '388,288', '12,288']));
+    // 用户点过的照用户的
+    expect(wallTypes(walls, [{at: [400, 100], kind: 'partition'}], 10).get(inner.id)).toMatchObject({open: false});
+  });
+});
+
+describe('方框合并的轮廓', () => {
+  it('两个方框拼成 L 形：6 个顶点，面积对', () => {
+    const poly = unionOutline([{x0: 0, y0: 0, x1: 400, y1: 300}, {x0: 400, y0: 0, x1: 600, y1: 200}]);
+    expect(poly).toHaveLength(6);
+    const area = Math.abs(poly.reduce((s, p, i) => s + p[0] * poly[(i + 1) % poly.length]![1] - poly[(i + 1) % poly.length]![0] * p[1], 0)) / 2;
+    expect(area).toBe(400 * 300 + 200 * 200);
   });
 });
