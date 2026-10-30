@@ -20,6 +20,8 @@ export interface DraftWall {
   kind: WallKind;
   confidence?: number;
   confirmed?: boolean;
+  /** 墙类型是按图猜的或默认的，用户没核实（框房间流程） */
+  unverified?: boolean;
   source: Source;
 }
 
@@ -32,6 +34,7 @@ export interface DraftOpening {
   b: P;
   /** 手动放的门窗记下想要的真实宽度（mm），生成户型时按最终比例重新摆，不受放置时的估算比例影响 */
   widthMm?: number;
+  isEntry?: boolean;
   confidence?: number;
   confirmed?: boolean;
   source: Source;
@@ -350,7 +353,7 @@ export function draftToPlan(draft: Draft, mmPerPixel: number, name = '我的户�
     // 手描的墙在图上只是一条线，厚度按墙的类型给常见值；识别出来的墙按图上量到的厚度
     const thickness = w.source === 'manual' ? MANUAL_THICKNESS[w.kind] : Math.max(60, round10(w.thickness * mmPerPixel));
     wallThick.set(w.id, thickness);
-    return {id: w.id, a: s(w.a), b: s(w.b), thickness, kind: w.kind};
+    return {id: w.id, a: s(w.a), b: s(w.b), thickness, kind: w.kind, ...(w.unverified && w.kind !== 'exterior' ? {unverified: true} : {})};
   });
 
   const wallMm = new Map(walls.map((w) => [w.id, w]));
@@ -368,6 +371,7 @@ export function draftToPlan(draft: Draft, mmPerPixel: number, name = '我的户�
       thickness,
       head: o.kind === 'window' ? 2400 : o.kind === 'slidingDoor' ? 2200 : 2100,
       ...(o.kind === 'window' ? {sill: 900} : {}),
+      ...(o.isEntry ? {isEntry: true} : {}),
     };
     if (o.kind !== 'door') return base;
     // 默认门扇：铰链在 a 端，关门时沿墙指向 b，开门时转向墙的一侧

@@ -10,6 +10,10 @@ import type {WallKind} from '../../model/types';
 const WALL_KIND_NAME: Record<WallKind, string> = {bearing: '承重墙', exterior: '外墙', partition: '非承重墙', low: '矮墙'};
 const mm = (v: number) => `${Math.round(v).toLocaleString('zh-CN')} mm`;
 import {IconTrash} from '../../lib/icons';
+import type {Wall} from '../../model/types';
+
+/** 核实墙类型：去掉「按图猜的」标记 */
+const verified = ({unverified: _u, ...rest}: Wall, kind: WallKind): Wall => ({...rest, kind});
 
 // 编辑表单选中东西后才需要，单独拆包
 const FurnitureEditor = lazy(() => import('./Editors').then((m) => ({default: m.FurnitureEditor})));
@@ -108,6 +112,26 @@ export function PropertiesTab() {
           <dt>状态</dt>
           <dd>{state}</dd>
         </dl>
+        {w.unverified && !w.added && (
+          <div className="np-unverified">
+            <p className="np-hint">这面墙是不是承重墙是按户型图猜的，以物业或开发商的结构图为准。</p>
+            <div className="np-unverified-actions">
+              <Button label="确认是非承重" variant="secondary" size="sm" onClick={() => store.commit((p) => ({...p, walls: p.walls.map((x) => (x.id === w.id ? verified(x, 'partition') : x))}))} />
+              <Button
+                label="其实是承重墙"
+                variant="ghost"
+                size="sm"
+                onClick={() =>
+                  store.commit((p) => ({
+                    ...p,
+                    walls: p.walls.map((x) => (x.id === w.id ? {...verified(x, 'bearing'), thickness: Math.max(x.thickness, 240)} : x)),
+                    demolished: p.demolished.filter((id) => id !== w.id),
+                  }))
+                }
+              />
+            </div>
+          </div>
+        )}
         {w.added ? (
           <Button label="删掉这段墙" icon={<IconTrash />} variant="ghost" size="sm" onClick={() => store.toggleDemolish(w.id)} />
         ) : canDemolish(w) ? (

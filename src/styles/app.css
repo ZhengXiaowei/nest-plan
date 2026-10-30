@@ -196,3 +196,6 @@ body { margin: 0; background: var(--np-bg); color: var(--np-ink); -webkit-font-s
 .np-selbar > span { font-weight: 600; margin-right: 6px; }
 @media (pointer: coarse) { .np-selbar { display: flex; } }
 @media (pointer: coarse) { .np-stage:has(.np-selbar) .np-stage-hint { display: none; } }
+.np-unverified { display: flex; flex-direction: column; gap: 8px; padding: 10px; border-radius: 10px; background: #FFF7ED; }
+.np-unverified .np-hint { margin: 0; color: #9A3412; }
+.np-unverified-actions { display: flex; gap: 8px; flex-wrap: wrap; }

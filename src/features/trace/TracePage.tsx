@@ -1,4 +1,4 @@
-import {useRef, useState, type DragEvent} from 'react';
+import {useEffect, useRef, useState, type DragEvent} from 'react';
 import {Stepper, Step} from '@astryxdesign/core/Stepper';
 import {Button} from '@astryxdesign/core/Button';
 import {Banner} from '@astryxdesign/core/Banner';
@@ -16,6 +16,9 @@ import {createSamplePlan} from '../../model/samplePlan';
 import {navigate} from '../../lib/router';
 import {useTraceStore, type TraceTool} from './traceStore';
 import {TraceCanvas} from './TraceCanvas';
+import {BoxCanvas} from './BoxCanvas';
+import {BoxPanel} from './BoxPanel';
+import {useBoxStore} from './boxStore';
 import {useScale} from './scale';
 import {draftToPlan, needsReview} from './draft';
 import type {WallKind} from '../../model/types';
@@ -48,6 +51,21 @@ export default function TracePage() {
   const aiSettings = useAiSettings((s) => s.settings);
   const openDialog = useAiSettings((s) => s.openDialog);
   const {mmPerPixel} = useScale();
+  const mode = useBoxStore((s) => s.mode);
+  const [miss, setMiss] = useState(false);
+  useEffect(() => {
+    let timer = 0;
+    const on = () => {
+      setMiss(true);
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => setMiss(false), 2200);
+    };
+    window.addEventListener('np-box-miss', on);
+    return () => {
+      window.removeEventListener('np-box-miss', on);
+      window.clearTimeout(timer);
+    };
+  }, []);
 
   const hasDraft = draft.walls.length > 0;
   const reviewCount = [...draft.walls, ...draft.openings, ...draft.rooms].filter(needsReview).length;
@@ -62,6 +80,8 @@ export default function TracePage() {
     }
     try {
       useTraceStore.getState().setImage(await loadImageFile(file));
+      useBoxStore.getState().reset();
+      useBoxStore.getState().setMode('boxes');
     } catch {
       setError('这张图片读不出来，换一张试试。');
     }
@@ -121,6 +141,11 @@ export default function TracePage() {
               支持截图和照片（PNG / JPG / WebP）。CAD 文件稍后支持。
             </div>
           </button>
+        ) : mode === 'boxes' ? (
+          <>
+            <BoxCanvas key={image.dataUrl.length + image.name} image={image} />
+            {miss && <div className="bx-toast">这里框不出房间，试试拖一个方框</div>}
+          </>
         ) : (
           <>
             <div className="tr-toolbar">
@@ -144,7 +169,14 @@ export default function TracePage() {
       </section>
 
       <aside className="np-trace-side">
-        <Heading level={2}>户型还原</Heading>
+        {mode === 'boxes' ? (
+          <BoxPanel image={image} onPickFile={() => inputRef.current?.click()} onUseSample={useSample} />
+        ) : (
+        <>
+        <HStack justify="between" align="center">
+          <Heading level={2}>户型还原 · 精修</Heading>
+          <Button label="回到框房间" variant="ghost" size="sm" onClick={() => useBoxStore.getState().setMode('boxes')} />
+        </HStack>
         <Stepper activeStep={activeStep} orientation="vertical" density="compact" label="还原步骤">
           <Step step={0} label="上传户型图" description="截图、照片都可以" />
           <Step step={1} label="识别或描墙" description="用你连接的模型识别，或者直接在图上描" />
@@ -178,6 +210,8 @@ export default function TracePage() {
           <p className="np-hint">手上还没有户型图？先用示例户型（三室两厅）体验一下。</p>
           <Button label="用示例户型" variant="secondary" onClick={useSample} />
         </div>
+        </>
+        )}
       </aside>
     </main>
   );

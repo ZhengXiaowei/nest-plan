@@ -21,6 +21,8 @@ export interface Wall {
   height?: number;
   /** 改造时新砌的墙（毛坯里没有） */
   added?: boolean;
+  /** 墙类型是按户型图猜的，用户没核实过；拆之前要提醒找物业核实 */
+  unverified?: boolean;
 }
 
 /** 平面图上的测量线 */
